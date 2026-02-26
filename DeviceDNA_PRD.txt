@@ -1,0 +1,415 @@
+
+
+
+
+
+
+1. Executive Summary
+DeviceDNA is a software-defined cybersecurity intelligence platform purpose-built for the growing challenge of IoT network security. As enterprises, hospitals, smart cities, and industrial environments continue deploying tens of thousands of heterogeneous IoT devices, the traditional perimeter-based security model has become obsolete. Devices are compromised, repurposed, and hijacked in ways that go undetected for weeks or months.
+
+DeviceDNA addresses this by applying a continuous, AI-powered behavioral intelligence layer across every device in the network. Rather than relying on static firewall rules or known-signature detection, DeviceDNA learns what each device should be doing — building a living Digital Twin of its expected behavior — and compares reality against that model at every moment.
+
+The platform is built around four core capabilities that differentiate it from all existing solutions:
+
+Dynamic Trust Scoring — Every device is assigned a real-time trust score (0–100) that reflects its current risk level, updated continuously based on behavioral conformance, policy compliance, drift magnitude, peer comparison, and threat intelligence signals.
+Policy Conformance & Drift Intelligence — The system detects both hard violations (immediate, binary rule breaks) and soft drift (gradual, stealthy behavioral change over time) using statistical algorithms including CUSUM and LSTM time-series models.
+Evidence-First Explainability — Every alert, trust score drop, or policy violation is accompanied by a human-readable security brief that explains what changed, why it matters, how confident the system is, and what the SOC analyst should do next.
+Autonomous Response Engine — Beyond detection, DeviceDNA can isolate, sandbox, or throttle a device autonomously or on-demand, functioning like a tier-1 SOC analyst that never sleeps.
+
+DeviceDNA reduces Mean Time to Detect (MTTD) from hours to minutes, eliminates the need for rule-by-rule policy authoring through its NLP-based policy engine, and provides a SOC-grade visualization dashboard that makes network security visible, understandable, and actionable for operators at every technical level.
+
+
+
+
+2. Problem Statement & Background
+2.1 The IoT Security Crisis
+The global IoT device count surpassed 15 billion in 2024 and is projected to reach 29 billion by 2030. These devices — smart cameras, medical sensors, industrial controllers, building management systems, environmental monitors — operate continuously, transmit sensitive data, and often run on minimal hardware that cannot support traditional security agents or endpoint protection software.
+
+The security challenge is threefold:
+Heterogeneity — Thousands of device types, operating systems, communication protocols, and vendors make unified policy enforcement nearly impossible with rule-based systems.
+Stealth — Modern IoT attackers (including nation-state APT groups) don't announce themselves. They compromise devices slowly and incrementally, staying beneath detection thresholds for months.
+Volume — A mid-sized enterprise might have 10,000 IoT devices. No human team can monitor behavioral telemetry at that scale manually.
+
+2.2 Why Existing Solutions Fail
+
+2.3 The DeviceDNA Opportunity
+DeviceDNA occupies the gap between these failed approaches. It is agentless (no software required on devices), AI-driven (learns normal behavior autonomously), drift-aware (detects stealth attacks that evade all existing tools), and explainable (tells human operators exactly what is happening and why). This combination has never been unified in a single platform — until now.
+
+
+
+3. Threat & Failure Model
+3.1 Threat Actor Profiles
+DeviceDNA is designed to detect and respond to threats from three categories of adversaries:
+
+
+3.2 Attack Taxonomy Detected by DeviceDNA
+
+
+3.3 Failure Modes & Mitigations
+
+
+
+4. Technical & Functional Architecture
+4.1 Architecture Overview
+DeviceDNA is built as a layered, microservices-oriented platform. Each layer has a distinct responsibility, communicates through well-defined interfaces, and can be scaled independently. The architecture follows a stream-processing paradigm — telemetry flows in continuously, is processed in real-time, and produces outputs (scores, alerts, briefs) with sub-minute latency.
+
+
+4.2 Component-Level Architecture
+4.2.1 Telemetry Collector
+The Telemetry Collector is the entry point for all network data. It subscribes to multiple data sources simultaneously and normalizes incoming data into a unified telemetry schema before publishing to internal Kafka topics.
+Input Sources: NetFlow v9/v10, sFlow, IPFIX, MQTT broker events, SNMP traps, DNS query logs
+Kafka Topics: raw-flows, device-events, dns-logs, protocol-events
+Normalization: Timestamps normalized to UTC; IP addresses mapped to device identifiers; protocol codes converted to human-readable names
+Throughput: Designed to handle 100,000+ flow records per second in production; simulated at 10,000 flows/second for hackathon demo
+
+4.2.2 Feature Extraction Engine
+Raw telemetry is not directly useful for ML models. The Feature Extraction Engine transforms stream data into structured, device-level feature vectors at configurable time windows (default: 5-minute rolling windows with 1-minute slide).
+
+
+4.2.3 Digital Twin Behavioral Modeling Engine
+The Digital Twin is the conceptual heart of DeviceDNA. Each registered device has a persistent Digital Twin — a statistical model of its expected behavioral profile built from its historical feature vectors.
+
+Twin Construction Phase (7-day baseline window):
+System collects all feature vectors for the device during the baseline period
+Per-feature mean, standard deviation, and distribution are computed
+Autoencoders are trained on baseline data to learn normal feature space
+Communication graph topology during baseline is recorded as the device's normal graph footprint
+
+Twin Comparison Phase (ongoing, every 5 minutes):
+Current feature vector is fed into the trained autoencoder
+Reconstruction error measures how far current behavior deviates from learned normal
+Z-score analysis flags features that are more than N standard deviations from baseline mean
+Twin Deviation Score (0.0–1.0) is computed as a weighted combination of autoencoder error and Z-score violations
+
+4.2.4 ML Detection Engine
+DeviceDNA uses an ensemble of three complementary ML models to provide comprehensive threat coverage:
+
+
+Each model produces an anomaly probability score (0.0–1.0). These three scores are combined using a weighted ensemble:
+
+
+
+
+5. Core Innovation Pillars
+DeviceDNA is built on 11 distinct innovation pillars, each addressing a specific gap in the current IoT security landscape. Together they form a unified, enterprise-grade security intelligence platform.
+
+
+Pillar 1 — Digital Twin Behavioral Modeling Engine
+The Digital Twin is the foundational innovation that makes everything else in DeviceDNA possible. Every IoT device in the network is assigned a Digital Twin — a virtual, AI-powered replica of the device's expected behavioral profile, constructed from observed telemetry data during a 7-day learning window.
+
+The Twin learns and models the following behavioral dimensions:
+Normal IP Addresses Contacted — Internal IPs, external cloud service endpoints, DNS resolvers, NTP servers
+Port Usage Pattern — Which TCP/UDP ports the device regularly uses; expected port distribution
+Communication Frequency — Average packets/flows per hour; burst patterns; quiet periods
+Packet Size Distribution — Typical payload sizes; ratio of large vs small packets
+Active Hours Profile — Time-of-day activity heatmap; expected sleep windows
+Protocol Usage Mix — Ratio of TCP/UDP/ICMP/application protocols
+External vs Internal Traffic Ratio — How much traffic leaves the local network
+
+Once the Twin is trained, the live device's behavior is continuously compared against it. The comparison produces a Twin Deviation Score (TDS) between 0.0 and 1.0, where 0 means perfect conformance and 1.0 means completely anomalous behavior. The TDS feeds directly into the Trust Score Engine as the primary input.
+
+
+
+Pillar 2 — Device DNA Fingerprinting System
+While the Digital Twin models time-varying behavior, the Device DNA Fingerprint is a compressed, persistent behavioral signature that uniquely identifies each device type and individual device instance. Think of it like a biometric fingerprint — hard to fake, easy to verify.
+
+The DNA fingerprint is a high-dimensional vector constructed from the following behavioral attributes:
+Average Traffic Volume — Daily byte count mean and variance over the baseline period
+Packet Timing Pattern — Inter-arrival time distribution; regularity score (periodic vs bursty)
+Communication Graph Topology — Degree distribution of the device's ego-network in the communication graph
+Protocol Mix Signature — Probability distribution across all protocols observed for the device
+External IP Pattern — Entropy score of external IP diversity; set of known-good IP ranges
+
+The DNA fingerprint serves two critical functions:
+Device Classification — When a new unknown device joins the network, its traffic fingerprint is compared to known device class DNAs (camera, thermostat, sensor, gateway) using cosine similarity. The closest match determines the device class, which sets its initial policy profile.
+Compromise Detection — If a device's current DNA begins to diverge significantly from its enrolled baseline DNA (cosine similarity drops below 0.85), this is a strong signal of firmware compromise or hardware replacement.
+
+ML Techniques Used: Autoencoder-based representation learning for DNA compression; Isolation Forest for outlier detection within device class clusters.
+
+
+Pillar 3 — Multi-Dimensional Dynamic Trust Score Engine
+The Trust Score is the primary output of DeviceDNA — a single 0–100 number that represents each device's current security trustworthiness. It is updated every 5 minutes, stored historically, and displayed on the SOC dashboard as a live metric and trend line.
+
+The Trust Score is computed from five weighted pillars:
+
+
+Trust Score Interpretation Scale:
+
+Trust Score Timeline Example:
+Smart Camera #14 — Day 1: Score 96 (Trusted). Day 5: Score 82 (Guarded — minor traffic increase). Day 10: Score 41 (Suspicious — new external IPs). Day 12: Score 17 (Critical — C2 beacon pattern confirmed).
+
+
+Pillar 4 — Drift Intelligence Engine (Hard + Soft Drift)
+Policy drift — the gradual or sudden departure of device behavior from its expected baseline — is one of the most dangerous and underdetected threats in IoT security. DeviceDNA implements a two-tier drift detection system that catches both immediate violations and slow, stealthy behavioral changes.
+
+Hard Drift — Immediate Binary Violations
+Hard drift occurs when a device takes an action that is categorically prohibited by its policy or physically impossible given its device class. These are detected in real time with zero tolerance.
+Camera opens SSH connection (Port 22) — cameras have no legitimate use for SSH
+Temperature sensor contacts an external IP address — sensors should only talk to local gateway
+Device communicates on a protocol not in its DNA fingerprint — e.g., a light bulb sending HTTPS traffic
+Outbound connection to a known-malicious IP (threat feed match)
+
+Soft Drift — Statistical Trend Detection via CUSUM
+Soft drift is the signature of sophisticated, patient attackers. They don't do anything dramatic — they slowly turn up the dial. Upload volume increases 5% per week. External IP diversity creeps up by one new IP per day. Active hours expand by 15 minutes each week.
+
+The CUSUM (Cumulative Sum Control Chart) algorithm is perfectly suited for this problem. It accumulates deviations from a target mean over time, detecting sustained directional trends that would be invisible to point-in-time anomaly detectors:
+CUSUM tracks the cumulative sum of (current_value - target_mean) for each behavioral feature
+When the cumulative sum exceeds a threshold (H), a soft drift alert is raised
+Alert includes: which feature is drifting, direction of drift, rate of change, time since drift began, predicted future value
+
+
+
+Pillar 5 — Graph Neural Network Network Intelligence
+Individual device anomaly detection is necessary but not sufficient. Many sophisticated attacks involve multiple devices coordinating — a botnet enrolling devices one by one, an attacker using one compromised device as a pivot point to reach others. These network-level patterns are invisible to device-centric analysis.
+
+DeviceDNA models the entire IoT network as a directed, weighted communication graph and applies a Graph Neural Network (GNN) to detect anomalous network topology patterns:
+Nodes — Each IoT device is a node, annotated with its feature vector (behavioral fingerprint)
+Edges — Each communication relationship between two devices is a directed edge, weighted by flow volume and frequency
+Edge Timestamps — The GNN analyzes temporal graph snapshots to detect new edge formation events
+
+The GNN is trained on normal network topology during the baseline period. Post-training, it generates a node-level anomaly score for each device based on its position in the graph, its edge pattern, and its neighbor feature vectors. This enables detection of:
+Lateral Movement — Device A suddenly starts communicating with Device C, which it never contacted before, after Device B was compromised
+Botnet Formation — A cluster of previously isolated sensors begin communicating with each other — a sign of C2-coordinated botnet enrollment
+Exfiltration Relay Chains — Data flowing through multiple hops of seemingly normal devices before leaving the network
+Isolation Violation — A device in a segmented VLAN starts communicating across segment boundaries
+
+Technology: PyTorch Geometric (PyG) for GNN implementation. GraphSAGE architecture for inductive learning (handles new devices joining the network without full retraining).
+
+
+Pillar 6 — Honey-Patch Sandbox Containment System
+When a device's trust score drops below the Suspicious threshold (40), DeviceDNA doesn't just raise an alert and wait for a human to respond. It activates the Honey-Patch Sandbox — a network-level containment mechanism that redirects the device's traffic to a controlled sandbox environment without blocking the device entirely.
+
+Why not simply block the device? Because blocking immediately alerts the attacker that they've been detected, causing them to erase evidence and abort the operation. The Honey-Patch approach is how elite SOC teams and threat intelligence units operate — they observe the attacker while they think they're still operating freely.
+
+Sandbox Architecture
+Traffic Mirroring — Suspicious device's traffic is mirrored (copied) to a sandbox analysis engine while original traffic is still forwarded (no disruption to device operation)
+Simulated Responses — If the device is attempting C2 communication, the sandbox can respond with simulated C2 acknowledgments to keep the attacker engaged and gather intelligence
+Forensic Capture — Full packet capture is activated for the sandboxed device, creating a forensic record of all attacker activity
+Escalation Trigger — If sandbox analysis confirms active attack (vs false positive), automatic isolation is triggered
+
+Implementation: Implemented as a software-defined network (SDN) flow rule modification. The DeviceDNA API sends flow table updates to a software switch (Open vSwitch / P4-capable switch) to redirect traffic. For the hackathon demo, this is simulated via a Python traffic mirroring module.
+
+
+Pillar 7 — Explainable AI Threat Reasoning Engine
+The hackathon's core requirement is evidence-first explainability — and DeviceDNA delivers the most sophisticated explainability output of any competing solution. Every trust score drop, policy violation, or drift alert is accompanied by a structured Threat Intelligence Brief (TIB) that reads like it was written by a senior security analyst.
+
+Threat Intelligence Brief (TIB) Format
+
+
+Technical Implementation: SHAP (SHapley Additive exPlanations) values are computed for the ML model's anomaly classification, identifying which features contributed most to the trust score drop. SHAP values are mapped to human-readable evidence statements through a templated natural language generation module. The NLG module selects the appropriate severity language, formats the telemetry evidence, and assembles the complete TIB.
+
+
+Pillar 8 — NLP-Based Natural Language Policy Engine
+Defining security policies for thousands of IoT devices is a major operational burden in every enterprise SOC. Traditional policy engines require security engineers to write explicit rules in vendor-specific query languages or proprietary DSLs. DeviceDNA eliminates this barrier with a Natural Language Policy Engine that converts plain English policy statements into executable rule definitions.
+
+A SOC analyst can simply type a natural language instruction into the DeviceDNA dashboard:
+"Flag all cameras that contact external IPs after midnight"
+"Alert if any temperature sensor exceeds 5 MB upload in a single hour"
+"Isolate any device that opens a new port not seen in its baseline"
+"Notify me if a device in VLAN 3 communicates with a device in VLAN 7"
+
+The NLP engine processes these instructions through a fine-tuned language model (based on a BERT-class transformer) trained on a synthetic dataset of security policy statements and their corresponding rule representations. The output is a structured policy object:
+
+
+Generated policies are presented to the analyst for review and one-click approval before activation, ensuring human oversight of autonomous policy creation.
+
+
+Pillar 9 — Predictive Risk Forecasting Engine
+Most security systems are reactive — they alert you after a device has already been compromised. DeviceDNA's Predictive Risk Forecasting Engine goes further: it predicts which devices are likely to breach critical trust score thresholds in the next 24–48 hours, enabling proactive intervention before a threat fully materializes.
+
+Technical Approach: LSTM (Long Short-Term Memory) neural networks are well-suited for this task because they can model sequential, time-dependent patterns in behavioral data. For each device, a dedicated LSTM model is trained on the device's trust score time series and feature vectors.
+
+The LSTM model ingests the last 30 days of hourly trust score data and 5-minute feature vectors and outputs a probability distribution over the next 48 hours:
+P(score < 40) in next 24 hours — Suspicious threshold breach probability
+P(score < 20) in next 48 hours — Critical threshold breach probability
+Predicted score trajectory — Hour-by-hour forecast with confidence intervals
+
+
+
+Pillar 10 — SOC-Grade Visualization Dashboard
+A security platform is only as effective as the interface through which operators use it. DeviceDNA's SOC Dashboard is designed to give security operators complete situational awareness of their entire IoT network at a glance, with the ability to drill down to any device, any event, or any time window in seconds.
+
+Dashboard Components
+Live Network Topology Map — D3.js force-directed graph showing all devices as nodes, communication edges between them, and trust score color-coding (Green: 85–100, Yellow: 40–84, Red: 0–39). Node size scales with traffic volume. Click any node to drill into device details.
+Trust Score Timeline Panel — Per-device trust score line chart showing historical trend with threshold reference lines. Supports multi-device overlay for comparison. Zoom range: 1 hour to 90 days.
+Drift Heatmap — Calendar-style heatmap showing soft drift accumulation per device per day. Color intensity indicates drift magnitude. Enables instant identification of which devices are on a dangerous trajectory.
+Alert Queue — Prioritized list of active alerts with severity badges (Critical / High / Medium / Low), device identifier, alert type, and timestamp. One-click access to full Threat Intelligence Brief for each alert.
+Attack Replay Mode — Unique feature: for any past incident, the system can replay the sequence of events that led to the trust score drop, showing the network graph evolution frame by frame. Invaluable for post-incident analysis.
+What-If Simulator — Allows operators to simulate network changes: 'What happens to overall network trust if Device X is isolated?' or 'What if we apply this new policy to all cameras?' Results shown as predicted trust score changes.
+Predictive Risk Panel — Shows top-N devices predicted to breach thresholds in next 24–48 hours, ranked by breach probability.
+
+
+Pillar 11 — Autonomous Response Engine
+Detection without response is incomplete. DeviceDNA's Autonomous Response Engine bridges the gap between threat intelligence and remediation action, offering a spectrum from fully manual to fully automated response modes.
+
+Response Action Library
+
+
+
+6. Telemetry Plan & Dataset Strategy
+6.1 Telemetry Data Requirements
+DeviceDNA requires network-level telemetry data — it does not require any software agent installed on IoT devices. All information is derived from network flow records, packet metadata, and protocol-level observations. This agentless approach makes DeviceDNA universally deployable across any IoT environment.
+
+
+6.2 Public Datasets for Development & Demo
+The hackathon does not require real network infrastructure. DeviceDNA uses the following publicly available, research-grade IoT network datasets for model training, validation, and live demo simulation:
+
+
+6.3 Telemetry Simulation for Hackathon Demo
+For the hackathon demonstration, a Python-based Telemetry Simulation Engine will generate realistic, time-series network flow data representing a simulated IoT environment of 50 devices across 6 device classes (cameras, sensors, thermostats, access control, medical devices, industrial controllers).
+
+The simulation will inject four distinct attack scenarios in sequence, each demonstrating a different DeviceDNA detection capability:
+Scenario 1 — Botnet C2 Beaconing: Camera #14 suddenly begins contacting external IPs with regular periodic intervals (30-second beacon). Trust score drops from 91 to 17 within 15 minutes.
+Scenario 2 — Slow Data Exfiltration via Soft Drift: Sensor #7's upload volume increases 8% per simulated day over 12 days. CUSUM algorithm detects drift on day 9. Other detectors miss it entirely.
+Scenario 3 — Lateral Movement via GNN: Three medical devices begin communicating with each other after having never communicated before. GNN detects new edges and raises cluster anomaly alert.
+Scenario 4 — NLP Policy Trigger: Analyst types 'alert if any device contacts known TOR exit nodes' — NLP engine generates and activates rule in 8 seconds. Rule fires 2 minutes later when a thermostat contacts a TOR IP.
+
+
+
+7. AI/ML Component Design
+7.1 ML Architecture Overview
+DeviceDNA employs six distinct machine learning components, each designed for a specific detection or prediction task. The components are trained independently and their outputs combined through a meta-layer scoring engine.
+
+
+7.2 Training Strategy
+Phase 1: Supervised Pre-training (Offline)
+Models that require labeled data (GNN, NLP parser) are pre-trained offline using the IoT-23, TON-IoT, and CIC-IoT-2023 datasets before deployment. This establishes initial model weights and sets performance baselines.
+
+Phase 2: Unsupervised Baseline Learning (Per-Device, 7 days)
+When deployed, the unsupervised components (VAE, Isolation Forest) undergo a per-device baseline learning phase. No labels are required — the models simply learn what normal looks like for each specific device in its specific network environment.
+
+Phase 3: Continuous Online Learning
+All models support incremental updates. As new behavioral data accumulates, model parameters are updated using mini-batch gradient descent (for deep learning models) or incremental forest extension (for Isolation Forest). This prevents model staleness as device behavior legitimately evolves over months.
+
+7.3 Model Performance Targets
+
+
+
+8. Policy Model & Baseline Protection Strategy
+8.1 Policy Hierarchy
+DeviceDNA organizes security policies into a three-tier hierarchy, enabling both global network-wide enforcement and granular per-device customization:
+
+Tier 1 — Universal Network Policies: Apply to every device, regardless of type. Example: No device may communicate with known-malicious IPs. No device may use ports 0–1023 unless in its DNA profile.
+Tier 2 — Device Class Policies: Apply to all devices of a specific class (e.g., all cameras, all medical sensors). Example: Camera class devices may only use RTSP, HTTP, HTTPS, and DNS protocols. Temperature sensor class devices may only communicate with designated gateway IPs.
+Tier 3 — Per-Device Policies: Apply to a specific device instance. Example: Camera #14 in ICU may communicate with additional medical network IPs due to its specific role. Generated by NLP policy engine or manually by SOC admin.
+
+8.2 Policy Evaluation Engine
+At every 5-minute evaluation cycle, the Policy Engine evaluates each device's current feature vector against all applicable policies across all three tiers. Policy evaluation is performed in descending tier order — a Tier 1 violation triggers regardless of Tier 3 exemptions.
+
+Policy violations are classified by severity:
+
+8.3 Baseline Protection Strategy
+DeviceDNA implements multiple layers of baseline protection to ensure the platform itself cannot be manipulated by attackers who are aware of the monitoring system:
+
+Immutable Baseline Storage: Device DNA fingerprints and Digital Twin baseline parameters are stored in a write-once, append-only database partition. They cannot be modified post-enrollment without a multi-admin approval workflow.
+Baseline Poisoning Detection: During the 7-day baseline learning window, the system monitors for unusually high behavioral variance that might indicate an attacker is trying to manipulate the baseline. If baseline variance exceeds class-average baseline variance by 3x, the learning window is extended and an alert is raised.
+Cross-Device Consistency Checks: A device's baseline is compared to the class-average DNA of its device type. Extreme outliers (cosine similarity < 0.6) during enrollment trigger a manual review requirement.
+Platform Integrity Monitoring: DeviceDNA monitors its own API endpoint access logs, database write patterns, and ML model weight changes for signs of tampering. Any unauthorized modification to trust score thresholds, policy definitions, or model parameters triggers an integrity alert.
+
+
+
+9. Explainability Output Specification
+9.1 Explainability Design Philosophy
+The primary audience for DeviceDNA's explainability output is a Level-1 SOC analyst who may not have deep expertise in machine learning or statistical anomaly detection. Every alert must be immediately actionable without requiring the analyst to understand the underlying ML methodology. DeviceDNA achieves this through a principle called the Three-Layer Explanation:
+
+Layer 1 — The Headline: A single sentence that captures the most important finding. Example: 'Camera #14 is sending large volumes of data to unknown external servers in the middle of the night.'
+Layer 2 — The Evidence: A structured list of specific, quantified behavioral changes that support the headline. Tied directly to telemetry values.
+Layer 3 — The Context: Why this pattern matters from a security perspective. What attack family it resembles. What the consequences of inaction could be.
+
+9.2 SHAP-Based Feature Attribution
+The technical foundation of DeviceDNA's explainability is SHAP (SHapley Additive exPlanations). SHAP provides a mathematically rigorous attribution of each input feature's contribution to the ML model's anomaly score. For each alert, SHAP values are computed for the Isolation Forest and VAE models, and the top contributing features are extracted.
+
+SHAP values are translated into human-readable statements through a feature-to-language mapping table, a small curated dataset of 120 (feature, direction, severity) → natural_language_template mappings. This translation is deterministic and auditable — every generated statement can be traced back to a specific SHAP value and its corresponding feature.
+
+9.3 Explainability Output Fields — Complete Specification
+
+
+
+
+10. Evaluation Plan
+10.1 Evaluation Framework Overview
+DeviceDNA's evaluation plan is designed to demonstrate measurable, quantitative improvement over baseline security approaches across all three primary objectives: trust scoring accuracy, drift detection capability, and explainability quality. The evaluation uses a combination of held-out dataset testing and live demo simulation.
+
+10.2 Experiment 1 — Trust Score Responsiveness
+Objective: Demonstrate that trust scores accurately and promptly reflect device threat level.
+Setup: Using IoT-23 dataset, feed 30 minutes of normal traffic for 10 devices (establishing baseline trust scores of 80–95), then inject labeled attack traffic for 5 devices.
+Metrics: Time from attack injection to trust score crossing the Suspicious threshold (40); maximum trust score during attack for compromised devices; minimum trust score during clean period for non-compromised devices.
+Success Criteria: Compromised devices cross trust score threshold of 40 within 10 minutes of attack injection. Non-compromised devices maintain trust score above 75 throughout.
+
+10.3 Experiment 2 — Soft Drift Detection vs Threshold
+Objective: Demonstrate that CUSUM detects gradual attack campaigns that point-in-time anomaly detectors miss.
+Setup: Simulate 21-day network timeline with slow exfiltration attack starting Day 8 (upload volume increasing 7% per simulated day). Run both CUSUM and a standard threshold-based detector (alert when value exceeds baseline mean + 2 standard deviations) in parallel.
+Metrics: Detection day for each algorithm; false negative rate; time advantage of CUSUM over threshold detection.
+Success Criteria: CUSUM detects attack by Day 14 (within 7 days of onset). Standard threshold detector detects attack no earlier than Day 18, demonstrating DeviceDNA's 4-day advantage.
+
+10.4 Experiment 3 — GNN vs Non-Graph Detection for Lateral Movement
+Objective: Show that GNN adds unique value for detecting network topology attacks invisible to device-level analysis.
+Setup: Simulate lateral movement attack where 3 devices begin communicating with each other and then collectively contact an external IP. All individual devices have normal feature vectors — no device-level anomaly detector fires.
+Metrics: Does GNN detect the cluster anomaly? Alert generated before/after first external contact?
+Success Criteria: GNN raises cluster anomaly alert within 2 evaluation cycles (10 minutes) of first new inter-device edge. Standard device-level detectors (Isolation Forest + VAE) produce no alert.
+
+10.5 Experiment 4 — Explainability Quality Assessment
+Objective: Validate that Threat Intelligence Briefs are accurate, complete, and actionable.
+Evaluation Criteria:
+Accuracy: All evidence items in TIB are traceable to actual telemetry values — verified manually against raw log records.
+Completeness: TIB includes all top-5 SHAP-contributing features for each alert — verified against SHAP output.
+Actionability: Each recommended action is specific, implementable, and proportionate to severity — qualitative review.
+False Attribution Rate: No evidence item attributes anomalous behavior to a feature that did not actually change — verified against baseline values.
+
+10.6 Experiment 5 — NLP Policy Accuracy
+Objective: Validate that the NLP Policy Engine correctly converts natural language statements to executable rules.
+Test set: 50 policy statements across 5 complexity levels (simple, compound, time-based, threshold-based, action-chained).
+Metrics: Intent classification accuracy; entity extraction F1 score; generated rule functional correctness (does the rule fire on the intended traffic and not fire on unintended traffic).
+Success Criteria: >= 85% intent classification accuracy; >= 0.82 entity extraction F1; >= 90% generated rules functionally correct.
+
+
+
+11. Tools & Technology Stack
+11.1 Complete Technology Stack
+
+
+11.2 Development & Demo Infrastructure
+Development: Local Docker Compose stack on developer laptops. Full stack operational on 16GB RAM machine.
+Demo Environment: Single Docker Compose command deploys all services. Telemetry simulation starts automatically. Demo dataset pre-loaded with 7-day baseline history for 50 simulated devices.
+Dataset Storage: IoT-23 and N-BaIoT datasets pre-processed and stored in InfluxDB. Feature extraction pre-computed for demo speed.
+
+
+
+12. Expected Benefits & Real-World Impact
+12.1 Quantitative Benefits
+
+
+12.2 Qualitative Benefits
+Zero Agent Requirement — DeviceDNA works on any IoT device, regardless of operating system, hardware capability, or vendor. No firmware modification required.
+Proactive Security Posture — The first IoT security platform that predicts compromise before it fully manifests, shifting the enterprise from reactive to proactive security.
+Human-Machine Collaboration — NLP policy engine democratizes security policy authoring; analysts of all technical levels can define and manage policies without engineering support.
+Forensic Capability — Attack Replay Mode and full packet capture during containment provide complete forensic evidence for incident response and compliance reporting.
+Scalability — Architecture designed to monitor from 100 to 100,000 devices without changes to platform design; horizontal scaling via Kafka consumer groups and stateless API workers.
+
+12.3 Industry Verticals — Use Case Applications
+
+
+
+13. Implementation Roadmap
+13.1 Hackathon Deliverable Scope (Phases 1 & 2)
+
+
+13.2 Hackathon Demo Plan
+The live hackathon demo follows a 5-minute script designed to maximize visual impact and demonstrate all core capabilities:
+
+Minute 1 — Dashboard Tour: Show network topology map with 50 devices all green. Explain Trust Score scale. Show trust timeline for a healthy device.
+Minute 2 — Attack Scenario 1 (Botnet C2): Inject camera compromise. Watch trust score drop live on dashboard from 91 to 17. Show Threat Intelligence Brief. Demo sandbox activation.
+Minute 3 — Attack Scenario 2 (Soft Drift): Show drift heatmap. Replay 12-day CUSUM accumulation. Demonstrate that standard threshold detector would have missed it.
+Minute 4 — NLP Policy Demo: Type 'alert if camera contacts external IP after midnight' in plain English. Show rule generated in real-time. Trigger the rule.
+Minute 5 — Predictive Alert: Show predictive panel with 3 devices predicted to breach thresholds. Click into LSTM forecast chart. Explain proactive response capability.
+
+
+
+14. Why DeviceDNA Wins
+
+
+DeviceDNA is not a security tool. It is a security intelligence platform. The distinction matters because intelligence means prediction, explanation, and context — not just detection. In a world where IoT devices are deployed faster than any human team can monitor them, DeviceDNA is the AI-powered analyst that never sleeps, never gets overwhelmed, and always tells you exactly why a device is risky before it becomes a headline.
+
+
+DeviceDNA — Eclipse Hackathon 2025
+IoT Trust & Drift Analytics | Autonomous | Explainable | Predictive | Enterprise-Grade

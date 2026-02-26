@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 7, 11, 20;
+  --background-end-rgb: 7, 11, 20;
+  
+  --bg-deep: hsl(222, 47%, 5%);
+  --bg-primary: hsl(222, 47%, 8%);
+  
+  --trust-critical: hsl(0, 85%, 55%);
+  --trust-danger: hsl(15, 90%, 55%);
+  --trust-warning: hsl(40, 95%, 55%);
+  --trust-guarded: hsl(55, 90%, 55%);
+  --trust-normal: hsl(145, 70%, 50%);
+  --trust-trusted: hsl(155, 80%, 45%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 7, 11, 20;
+    --background-end-rgb: 7, 11, 20;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}

@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # Relational Database (Primary data store)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: devicedna
+      POSTGRES_PASSWORD: devicedna_password
+      POSTGRES_DB: devicedna
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db_init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devicedna"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Time-Series Database (Telemetry)
+  influxdb:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: devicedna
+      DOCKER_INFLUXDB_INIT_PASSWORD: devicedna_password
+      DOCKER_INFLUXDB_INIT_ORG: devicedna_org
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: super-secret-influx-token-123
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+
+  # In-Memory Cache (Real-time scores & PubSub)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Stream Processing (Kafka + Zookeeper)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+volumes:
+  postgres_data:
+  influxdb_data:
+  influxdb_config:
