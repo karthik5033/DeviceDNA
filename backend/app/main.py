@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import socketio
 
 from contextlib import asynccontextmanager
 
 from app.services.telemetry import TelemetryService
 from app.api.routes import trust
 from app.db.influxdb import influx_db
+from app.api.ws import sio
 
 telemetry_service = TelemetryService(influx_db)
 
@@ -43,5 +45,8 @@ async def health_check():
     """Basic health check endpoint."""
     return {"status": "ok", "service": "DeviceDNA Backend"}
 
+# Socket.io ASGI wrapper
+socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:socket_app", host="0.0.0.0", port=8000, reload=True)

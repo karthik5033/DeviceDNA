@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { getTrustColor } from '@/lib/utils';
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:8000');
 
 // Mock data generation for initial visualization
 const generateMockData = () => {
@@ -52,6 +55,25 @@ export default function NetworkTopologyMap() {
   useEffect(() => {
     // Load mock data on mount
     setData(generateMockData());
+
+    // Listen for live anomalies to infect nodes
+    socket.on('new_alert', (alert) => {
+       setData(prev => {
+          if (!prev) return prev;
+          const newNodes = prev.nodes.map(n => {
+             // If this node is the one that got flagged, crash its trust score
+             if (n.id === alert.device) {
+                return { ...n, trust_score: alert.score || 25 }; 
+             }
+             return n;
+          });
+          return { nodes: newNodes, links: prev.links };
+       });
+    });
+
+    return () => {
+      socket.off('new_alert');
+    };
   }, []);
 
   useEffect(() => {

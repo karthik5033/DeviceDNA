@@ -4,15 +4,38 @@ import { Activity, ShieldAlert, Wifi, Server } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import NetworkTopologyMap from '@/components/visualizations/NetworkTopologyMap';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
+import { useEffect, useState } from 'react';
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:8000');
 
 export default function DashboardOverview() {
-  
-  // Fake data while real APIs are pending
+  const [liveAlerts, setLiveAlerts] = useState<any[]>([]);
+  const [flowRate, setFlowRate] = useState(1200);
+
+  useEffect(() => {
+    socket.on('connect', () => console.log('WebSocket Connected!'));
+    
+    socket.on('new_alert', (alert) => {
+      setLiveAlerts((prev) => [alert, ...prev].slice(0, 10)); // Keep top 10 recent
+    });
+
+    socket.on('telemetry_ping', () => {
+       // Randomly fluctuate the flow rate
+       setFlowRate(prev => Math.floor(prev + (Math.random() - 0.5) * 50));
+    });
+
+    return () => {
+      socket.off('new_alert');
+      socket.off('telemetry_ping');
+    };
+  }, []);
+
   const kpis = [
     { title: 'Global Trust Score', value: '94.2', desc: 'Slightly degraded (-1.2)', icon: ShieldAlert, color: 'text-[#3edcff]' },
     { title: 'Active Devices', value: '50', desc: '100% online', icon: Wifi, color: 'text-green-500' },
-    { title: 'Network Flow Rate', value: '1.2k', desc: 'Flows / minute', icon: Activity, color: 'text-yellow-500' },
-    { title: 'Active Alerts', value: '3', desc: '2 High, 1 Med', icon: Server, color: 'text-red-500' },
+    { title: 'Network Flow Rate', value: `${(flowRate / 1000).toFixed(1)}k`, desc: 'Flows / minute', icon: Activity, color: 'text-yellow-500' },
+    { title: 'Active Alerts', value: liveAlerts.length.toString(), desc: 'Live Stream', icon: Server, color: 'text-red-500' },
   ];
 
   return (
@@ -71,20 +94,21 @@ export default function DashboardOverview() {
                 <ShieldAlert size={16} className="text-red-500" /> 
                 Actionable Alerts
               </h2>
-              <span className="text-xs bg-red-500/10 border border-red-500/30 text-red-500 px-2 py-0.5 rounded animate-pulse font-bold">3 LIVE</span>
+              <span className="text-xs bg-red-500/10 border border-red-500/30 text-red-500 px-2 py-0.5 rounded animate-pulse font-bold">{liveAlerts.length} LIVE</span>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-              {/* Fake Alert Items */}
-              {[1, 2, 3].map((alert) => (
-                <div key={alert} className="border border-red-500/20 bg-red-500/5 rounded-lg p-3 cursor-pointer hover:bg-red-500/10 transition-colors">
+              {liveAlerts.length === 0 ? (
+                 <div className="h-full flex items-center justify-center text-gray-500 text-sm font-mono">No live threats detected... listening to socket.io</div>
+              ) : liveAlerts.map((alert, idx) => (
+                <div key={idx} className="border border-red-500/20 bg-red-500/5 rounded-lg p-3 cursor-pointer hover:bg-red-500/10 transition-colors">
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded text-red-500 border border-red-500/30 uppercase tracking-wider backdrop-blur-sm bg-[#070b14]/50">Critical</span>
-                    <span className="text-[10px] text-gray-500 font-mono">2m ago</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded text-red-500 border border-red-500/30 uppercase tracking-wider backdrop-blur-sm bg-[#070b14]/50">{alert.severity}</span>
+                    <span className="text-[10px] text-gray-500 font-mono">{alert.time}</span>
                   </div>
-                  <h3 className="text-sm font-semibold mb-1 text-gray-200">Device SIM-{alert.toString().padStart(4, '0')} C2 Beaconing</h3>
+                  <h3 className="text-sm font-semibold mb-1 text-gray-200">Device {alert.device} {alert.type}</h3>
                   <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
-                    Isolation Forest flagged anomalous structural change. External destination port anomaly detected (Out Of Baseline).
+                    {alert.message}
                   </p>
                 </div>
               ))}
