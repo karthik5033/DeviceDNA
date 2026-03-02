@@ -1,9 +1,12 @@
 'use client';
 
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
+import { io } from 'socket.io-client';
 
-// Mock generation for 12 hours of trust score history (5-min intervals)
+const socket = io('http://localhost:8000');
+
+// Initial mock generation for 12 hours of trust score history (5-min intervals)
 const generateTimeSeriesData = () => {
   const data = [];
   const now = new Date();
@@ -11,11 +14,7 @@ const generateTimeSeriesData = () => {
   let currentScore = 95;
   for (let i = 144; i >= 0; i--) {
     const time = new Date(now.getTime() - i * 5 * 60000); // Backwards in 5 min steps
-    
-    // Simulate a random threat drop 2 hours ago
-    if (i === 24) currentScore = 45; // Sudden drop
-    else if (i < 24 && currentScore < 95) currentScore += Math.random() * 5; // Gradual recovery
-    else currentScore = Math.max(85, Math.min(100, currentScore + (Math.random() - 0.5) * 5)); // Normal variance
+    currentScore = Math.max(85, Math.min(100, currentScore + (Math.random() - 0.5) * 5)); // Normal variance
     
     data.push({
       time: time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -28,7 +27,76 @@ const generateTimeSeriesData = () => {
 };
 
 export default function TrustScoreTimeline() {
-  const data = useMemo(() => generateTimeSeriesData(), []);
+  const [data, setData] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Generate initial flat baseline
+    setData(generateTimeSeriesData());
+
+    socket.on('new_alert', (alert) => {
+       // Plunge the trust score when an anomaly happens
+       setData(prev => {
+          const newData = [...prev];
+          // Take the very last data point and tank its score into the red
+          const lastPoint = newData[newData.length - 1];
+          const dropScore = alert.score || 25; // Critical threshold
+          newData.push({
+             ...lastPoint,
+             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+             score: dropScore
+          });
+          // Also remove the oldest point to keep the array length stable
+          newData.shift();
+          return newData;
+       });
+    });
+
+    socket.on('device_isolated', (res) => {
+       // Snap back to healthy if mitigated
+       setData(prev => {
+          const newData = [...prev];
+          const lastPoint = newData[newData.length - 1];
+          newData.push({
+             ...lastPoint,
+             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+             score: 95
+          });
+          newData.shift();
+          return newData;
+       });
+    });
+
+    // Simulate standard ticking time advancement
+    const timer = setInterval(() => {
+       setData(prev => {
+          const newData = [...prev];
+          const lastPoint = newData[newData.length - 1];
+          
+          let nextScore = lastPoint.score;
+          // Gradual automatic recovery if it was dropped
+          if (nextScore < 90) {
+              nextScore += 2;
+          } else {
+              // Normal variance
+              nextScore = Math.max(85, Math.min(100, nextScore + (Math.random() - 0.5) * 3));
+          }
+
+          newData.push({
+             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+             score: nextScore,
+             threshold: 60
+          });
+          newData.shift();
+          return newData;
+       });
+    }, 5000); // Tick every 5 sec
+
+    return () => {
+       socket.off('new_alert');
+       socket.off('device_isolated');
+       clearInterval(timer);
+    }
+  }, []);
 
   // Custom detailed tooltip
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -37,7 +105,7 @@ export default function TrustScoreTimeline() {
       const isCritical = score < 60;
       
       return (
-        <div className="bg-[#0b101e]/95 border border-[#1e293b] p-3 rounded-lg shadow-xl backdrop-blur">
+        <div className="bg-[#0b101e]/95 border border-[#1e293b] p-3 rounded-lg shadow-xl backdrop-blur z-50">
           <p className="text-gray-400 text-xs mb-1 font-mono">{label}</p>
           <div className="flex items-end gap-2">
             <span className={`text-2xl font-bold font-mono tracking-tighter ${
@@ -48,7 +116,7 @@ export default function TrustScoreTimeline() {
             <span className="text-xs text-gray-500 mb-1">/ 100</span>
           </div>
           {isCritical && (
-            <p className="text-xs text-red-500 mt-1 uppercase tracking-wider font-bold">● Anomaly Detected</p>
+            <p className="text-xs text-red-500 mt-1 uppercase tracking-wider font-bold animate-pulse">● Anomaly Detected</p>
           )}
         </div>
       );
@@ -62,7 +130,7 @@ export default function TrustScoreTimeline() {
       <div className="absolute top-0 left-0 p-4 z-10 w-full flex justify-between items-center pointer-events-none">
         <h3 className="text-gray-300 font-semibold text-sm">System-Wide Trust Trajectory</h3>
         <span className="text-[#3edcff] font-mono bg-[#3edcff]/10 border border-[#3edcff]/30 px-2 py-1 rounded hidden sm:block">
-          12H History
+          Live Stream
         </span>
       </div>
 
@@ -112,7 +180,7 @@ export default function TrustScoreTimeline() {
               strokeWidth={3} 
               dot={false} 
               activeDot={{ r: 6, fill: '#070b14', stroke: '#3edcff', strokeWidth: 2 }} 
-              animationDuration={1500}
+              animationDuration={800}
             />
           </LineChart>
         </ResponsiveContainer>
