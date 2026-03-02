@@ -16,6 +16,7 @@ const MOCK_ALERTS = [
   { id: 'ALT-9398', device: 'SIM-0019', severity: 'low', type: 'Suspicious Flow', model: 'LSTM TimeSeries', message: 'Predicted temporal flow variance exceeded MSE threshold by 4%. Watch.', time: '5h ago', score: 78 },
 ];
 
+export default function AlertsPage() {
   const [filter, setFilter] = useState('all');
   const [liveAlerts, setLiveAlerts] = useState<any[]>(MOCK_ALERTS);
   const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
