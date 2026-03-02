@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 // Abstract Floating Network Node Background Component
 const AnimatedBackground = () => {
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none -z-10 bg-[#070b14]">
+    <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10 bg-[#070b14]">
       {/* Dynamic Grid */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_110%)] opacity-20" />
       
@@ -54,6 +54,13 @@ const AnimatedBackground = () => {
   );
 };
 
+const features = [
+  { title: "Behavioral CUSUM Drift", desc: "Monitors statistical accumulation to detect slow-acting threats like persistent data exfiltration over days instead of seconds.", icon: Activity },
+  { title: "GraphSAGE Lateral Maps", desc: "Constructs live topological maps using D3 and identifies malicious traversal between isolated hardware nodes.", icon: Network },
+  { title: "Isolation Forests", desc: "Immediately detects structural anomalies in payload sizes and port destinations mathematically independent of known signatures.", icon: Lock },
+  { title: "NLP Rule Compilers", desc: "Translates human-readable English policies into rigid firewall enforcement logic via BERT embeddings instantly.", icon: Terminal }
+];
+
 export default function Home() {
   const [apiStatus, setApiStatus] = useState<'loading' | 'online' | 'offline'>('loading');
 
@@ -81,11 +88,11 @@ export default function Home() {
   };
 
   return (
-    <main className="relative min-h-screen font-sans text-white overflow-hidden flex flex-col selection:bg-[#3edcff]/30">
+    <main className="relative min-h-screen font-sans text-white overflow-x-hidden flex flex-col selection:bg-[#3edcff]/30 pb-24">
       <AnimatedBackground />
 
       {/* Navigation Layer */}
-      <nav className="w-full flex justify-between items-center p-6 lg:px-12 z-50">
+      <nav className="w-full flex justify-between items-center p-6 lg:px-12 z-50 relative">
          <div className="flex items-center gap-2 font-bold text-xl tracking-tighter">
             <Lock className="text-[#3edcff]" size={20} />
             Device<span className="text-[#3edcff]">DNA</span>
@@ -106,7 +113,8 @@ export default function Home() {
          </div>
       </nav>
 
-      <div className="flex-1 flex flex-col items-center justify-center -mt-16 px-4 z-10 relative">
+      {/* HERO SECTION */}
+      <div className="min-h-[90vh] flex flex-col items-center justify-center -mt-16 px-4 z-10 relative">
         <motion.div 
            className="max-w-5xl w-full flex flex-col items-center text-center"
            variants={containerVariants}
@@ -114,7 +122,7 @@ export default function Home() {
            animate="visible"
         >
           {/* Top Pill */}
-          <motion.div variants={itemVariants} className="mb-8">
+          <motion.div variants={itemVariants} className="mb-8 mt-16 md:mt-0">
              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#3edcff]/30 bg-[#3edcff]/5 text-[#3edcff] text-xs font-semibold tracking-wide backdrop-blur-md">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3edcff] opacity-75"></span>
@@ -156,33 +164,99 @@ export default function Home() {
               <Terminal size={18} /> View Architecture
             </a>
           </motion.div>
+        </motion.div>
 
+        {/* Floating 3D Mockup Perspective */}
+        <motion.div 
+           initial={{ y: 150, opacity: 0, rotateX: 20 }}
+           animate={{ y: 0, opacity: 1, rotateX: 0 }}
+           transition={{ duration: 1, delay: 0.6, type: "spring", stiffness: 50 }}
+           style={{ perspective: "1200px" }}
+           className="w-full flex justify-center mt-20"
+        >
+           <div className="w-[80%] max-w-5xl h-64 md:h-80 bg-gradient-to-t from-[#070b14] via-[#111827] to-[#1e293b] border-t border-l border-r border-[#334155] rounded-t-3xl shadow-[0_-20px_50px_rgba(62,220,255,0.05)] flex p-6 gap-6 relative overflow-hidden backdrop-blur-xl group">
+               {/* Fake UI Elements inside the mockup */}
+               <div className="w-1/4 h-full flex flex-col gap-4">
+                  <div className="w-full h-8 bg-black/20 rounded-md border border-[#334155]/50 flex items-center px-3"><div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /></div>
+                  <div className="w-full h-24 bg-black/20 rounded-md border border-[#334155]/50 flex gap-2 p-2">
+                     <div className="w-1/2 h-full bg-[#3edcff]/10 rounded" />
+                     <div className="w-1/2 h-full bg-[#ef4444]/10 rounded" />
+                  </div>
+               </div>
+               <div className="flex-1 h-full bg-black/30 rounded-lg border border-[#334155]/50 relative overflow-hidden">
+                  <Network className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[#334155] opacity-30 w-32 h-32 group-hover:scale-110 transition-transform duration-1000 group-hover:opacity-50" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#070b14] to-transparent pointer-events-none" />
+               </div>
+           </div>
         </motion.div>
       </div>
 
-      {/* Floating 3D Mockup Perspective at the bottom */}
-      <motion.div 
-         initial={{ y: 150, opacity: 0, rotateX: 20 }}
-         animate={{ y: 0, opacity: 1, rotateX: 0 }}
-         transition={{ duration: 1, delay: 0.6, type: "spring", stiffness: 50 }}
-         style={{ perspective: "1200px" }}
-         className="w-full absolute bottom-0 left-0 flex justify-center translate-y-24"
-      >
-         <div className="w-[80%] max-w-6xl h-64 bg-gradient-to-t from-[#070b14] via-[#111827] to-[#1e293b] border-t border-l border-r border-[#334155] rounded-t-3xl shadow-[0_-20px_50px_rgba(62,220,255,0.05)] flex p-6 gap-6 relative overflow-hidden backdrop-blur-xl group">
-             {/* Fake UI Elements inside the mockup */}
-             <div className="w-1/4 h-full flex flex-col gap-4">
-                <div className="w-full h-8 bg-black/20 rounded-md border border-[#334155]/50 flex items-center px-3"><div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /></div>
-                <div className="w-full h-24 bg-black/20 rounded-md border border-[#334155]/50 flex gap-2 p-2">
-                   <div className="w-1/2 h-full bg-[#3edcff]/10 rounded" />
-                   <div className="w-1/2 h-full bg-[#ef4444]/10 rounded" />
-                </div>
-             </div>
-             <div className="flex-1 h-full bg-black/30 rounded-lg border border-[#334155]/50 relative overflow-hidden">
-                <Network className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[#334155] opacity-30 w-32 h-32 group-hover:scale-110 transition-transform duration-1000 group-hover:opacity-50" />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#070b14] to-transparent pointer-events-none" />
-             </div>
-         </div>
-      </motion.div>
+      {/* DETAILED SECTIONS */}
+      <div className="w-full max-w-6xl mx-auto px-6 mt-32 z-10 relative">
+        <motion.div 
+          initial={{ opacity: 0, y: 50 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.8 }}
+          className="text-center mb-16"
+        >
+          <h2 className="text-3xl md:text-5xl font-bold tracking-tighter mb-4">Five Pillars of Intelligence.</h2>
+          <p className="text-gray-400 max-w-2xl mx-auto text-lg leading-relaxed">
+            By rejecting rigid legacy IPS patterns, the DeviceDNA architecture processes continuous high-throughput Kafka telemetry streams through an ensemble of complex models simultaneously.
+          </p>
+        </motion.div>
+
+        {/* Feature Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {features.map((feature, i) => (
+            <motion.div 
+              key={i}
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-50px" }}
+              transition={{ duration: 0.5, delay: i * 0.1 }}
+              className="bg-[#111827]/80 backdrop-blur border border-[#1e293b] rounded-2xl p-8 hover:border-[#334155] transition-colors group relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl group-hover:bg-[#3edcff]/10 transition-colors" />
+              <feature.icon className="w-10 h-10 text-[#3edcff] mb-6" />
+              <h3 className="text-xl font-bold mb-3">{feature.title}</h3>
+              <p className="text-gray-400 leading-relaxed text-sm">{feature.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Architecture Diagram Fake */}
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          className="mt-32 border border-[#1e293b] rounded-3xl bg-[#070b14]/80 backdrop-blur p-8 lg:p-12 relative overflow-hidden"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/10 to-transparent pointer-events-none" />
+          <h2 className="text-2xl font-bold mb-8 text-center"><ShieldCheck className="inline-block mr-2 mb-1 text-green-500" /> Distributed Tech Stack</h2>
+          
+          <div className="flex flex-col md:flex-row items-center justify-between gap-8 font-mono text-sm relative">
+            {/* Arrows behind */}
+            <div className="hidden md:block absolute top-1/2 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#334155] to-transparent -z-10" />
+            
+            <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 text-center w-full md:w-1/3">
+              <span className="text-[#3edcff] font-bold block mb-2">Kafka Broker</span>
+              <span className="text-gray-500 text-xs">High-throughput packet ingestion layer</span>
+            </div>
+            
+            <div className="bg-gradient-to-br from-[#1e293b] to-[#111827] border border-[#334155] rounded-xl p-6 text-center shadow-[0_0_30px_rgba(62,220,255,0.1)] w-full md:w-1/3 scale-110 z-10">
+              <span className="text-white font-bold block mb-2 text-lg">FastAPI Backend</span>
+              <span className="text-cyan-400 text-xs font-sans">PyTorch • Scikit-Learn • NetworkX</span>
+            </div>
+            
+            <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 text-center w-full md:w-1/3">
+              <span className="text-blue-400 font-bold block mb-2">Next.js UI</span>
+              <span className="text-gray-500 text-xs">WebSockets + D3 Graphical Interface</span>
+            </div>
+          </div>
+        </motion.div>
+      </div>
     </main>
   );
 }
