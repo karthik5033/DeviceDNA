@@ -77,7 +77,7 @@ export default function NLPPoliciesPage() {
           </button>
 
           {/* Result Block */}
-          <div className={`mt-6 transition-all duration-500 flex-1 overflow-y-auto ${translationResult ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+          <div className={`mt-2 transition-all duration-500 flex-1 overflow-y-auto custom-scrollbar pr-2 ${translationResult ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
              {translationResult && (
                <div className="bg-[#070b14] border border-green-500/30 rounded-lg p-5">
                  <div className="flex justify-between items-center mb-4 border-b border-[#1e293b] pb-2">
@@ -92,20 +92,22 @@ export default function NLPPoliciesPage() {
                       <span className="text-xs text-gray-400 block mb-1">Extracted Intent:</span>
                       <span className="font-mono text-red-400 font-bold">{translationResult.intent}</span>
                     </div>
-                    <div className="bg-[#111827] border border-[#1e293b] p-3 rounded">
+                    <div className="bg-[#111827] border border-[#1e293b] p-3 rounded w-full overflow-hidden">
                       <span className="text-xs text-gray-400 block mb-1">Entities Recognized:</span>
-                      <pre className="font-mono text-xs text-yellow-500">{JSON.stringify(translationResult.entities, null, 2)}</pre>
+                      <pre className="font-mono text-xs text-yellow-500 overflow-x-auto custom-scrollbar pb-2">{JSON.stringify(translationResult.entities, null, 2)}</pre>
                     </div>
                  </div>
 
-                 <div className="bg-gray-900 border border-gray-700 p-4 rounded-lg relative group">
+                 <div className="bg-[#111827] border border-[#1e293b] p-4 rounded-lg relative group mt-6 mb-4 max-w-full">
                     <span className="absolute -top-3 left-4 bg-[#111827] px-2 text-xs text-gray-500 font-mono flex items-center gap-1"><Code size={12}/> Compiled Rule</span>
-                    <code className="text-[#3edcff] font-mono text-sm leading-relaxed block overflow-x-auto whitespace-pre">
-                      {translationResult.generatedRule}
-                    </code>
+                    <div className="overflow-x-auto custom-scrollbar pb-2 w-full pt-2">
+                       <code className="text-[#3edcff] font-mono text-sm leading-relaxed whitespace-pre">
+                         {translationResult.generatedRule}
+                       </code>
+                    </div>
                  </div>
 
-                 <button className="w-full mt-4 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/50 rounded-lg text-sm font-bold transition-colors flex justify-center items-center gap-2">
+                 <button className="w-full mt-4 py-3 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/50 rounded-lg text-sm font-bold transition-colors flex justify-center items-center gap-2">
                     <Play size={16} /> Deploy Policy to Live Tracking
                  </button>
                </div>
@@ -120,7 +122,7 @@ export default function NLPPoliciesPage() {
              
              <div className="relative text-gray-400">
                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2" size={14} />
-               <input type="text" placeholder="Filter policies..." className="bg-[#070b14] border border-[#334155] rounded text-xs py-1.5 pl-8 pr-3 text-white focus:outline-none w-48" />
+               <input type="text" placeholder="Filter policies..." className="bg-[#070b14] border border-[#334155] rounded text-xs py-1.5 pl-8 pr-3 text-white focus:outline-none w-48 transition-all focus:border-[#3edcff]" />
              </div>
            </div>
 
@@ -144,7 +146,7 @@ export default function NLPPoliciesPage() {
                    }`}>{policy.risk}</span>
                  </div>
                  
-                 <p className="text-sm text-gray-300 italic mb-4 leading-relaxed font-serif pl-2 border-l-2 border-[#1e293b]">"{policy.text}"</p>
+                 <p className="text-sm text-gray-300 italic mb-4 leading-relaxed font-serif pl-3 border-l-2 border-[#1e293b]">"{policy.text}"</p>
                  
                  <div className="flex justify-between items-center text-xs pt-3 border-t border-[#1e293b]/50">
                     <span className="text-gray-500 flex items-center gap-1">Matches: <span className="font-bold text-white font-mono">{policy.matchCount}</span></span>
