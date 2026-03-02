@@ -100,6 +100,23 @@ export default function NetworkTopologyMap() {
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force('collide', d3.forceCollide().radius(25));
 
+    // Create drop shadow filter for glowing compromised nodes
+    const defs = svg.append("defs");
+    const filter = defs.append("filter")
+        .attr("id", "glow")
+        .attr("x", "-50%")
+        .attr("y", "-50%")
+        .attr("width", "200%")
+        .attr("height", "200%");
+    
+    filter.append("feGaussianBlur")
+        .attr("stdDeviation", "4")
+        .attr("result", "coloredBlur");
+        
+    const feMerge = filter.append("feMerge");
+    feMerge.append("feMergeNode").attr("in", "coloredBlur");
+    feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
     // Draw links
     const link = svg.append('g')
       .attr('stroke', '#1e293b')
@@ -116,17 +133,22 @@ export default function NetworkTopologyMap() {
       .selectAll('circle')
       .data(data.nodes)
       .join('circle')
-      .attr('r', (d: any) => d.trust_score < 60 ? 12 : 8) // Make suspicious nodes slightly larger
-      .attr('fill', (d: any) => colorScale(d.trust_score))
       .style('cursor', 'pointer')
       .call(drag(simulation) as any);
+
+    // Apply dynamic attributes based on state updates (this will smoothly transition when state changes)
+    node.transition()
+      .duration(1000)
+      .attr('r', (d: any) => d.trust_score < 40 ? 16 : d.trust_score < 60 ? 12 : 8) 
+      .attr('fill', (d: any) => colorScale(d.trust_score))
+      .style("filter", (d: any) => d.trust_score < 40 ? "url(#glow)" : "none");
 
     // Add labels
     const label = svg.append('g')
       .selectAll('text')
       .data(data.nodes)
       .join('text')
-      .attr('dy', 20)
+      .attr('dy', 25)
       .attr('text-anchor', 'middle')
       .text((d: any) => d.id)
       .attr('font-size', '10px')
