@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     await telemetry_service.stop()
     await influx_db.close()
 
-app = FastAPI(
+fastapi_app = FastAPI(
     title="DeviceDNA API",
     description="Backend API for the DeviceDNA IoT Cybersecurity Platform",
     version="1.0.0",
@@ -29,10 +29,10 @@ app = FastAPI(
 )
 
 # Insert the API routes into the root app
-app.include_router(trust.router)
+fastapi_app.include_router(trust.router)
 
 # Configure CORS
-app.add_middleware(
+fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For dev only
     allow_credentials=True,
@@ -40,13 +40,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/api/health")
+@fastapi_app.get("/api/health")
 async def health_check():
     """Basic health check endpoint."""
     return {"status": "ok", "service": "DeviceDNA Backend"}
 
-# Socket.io ASGI wrapper
-socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
+# Socket.io ASGI wrapper - Exposed as `app` so default `uvicorn app.main:app` picks up WebSockets
+app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
 
 if __name__ == "__main__":
-    uvicorn.run("main:socket_app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
