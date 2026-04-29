@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { motion, useAnimation } from 'framer-motion';
-import { ShieldCheck, ArrowRight, Activity, Terminal, Lock, Network } from 'lucide-react';
+import { ShieldCheck, ArrowRight, Activity, Terminal, Lock, Network, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Abstract Floating Network Node Background Component
