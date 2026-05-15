@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 import NetworkTopologyMap from '@/components/visualizations/NetworkTopologyMap';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 
 // Particle Background for deep navy with shallow DOF
 const ParticleField = ({ success }: { success: boolean }) => {
@@ -46,11 +47,72 @@ const ParticleField = ({ success }: { success: boolean }) => {
 export default function DashboardOverview() {
   const [isolatedNode, setIsolatedNode] = useState<string | null>(null);
 
+  const [activeDevices, setActiveDevices] = useState(0);
+  const [criticalAlerts, setCriticalAlerts] = useState(0);
+  const [avgTrustScore, setAvgTrustScore] = useState(0);
+  const [threatsMitigated, setThreatsMitigated] = useState(0);
+  const [trustScores, setTrustScores] = useState<Record<string, number>>({});
+  const [latestAlert, setLatestAlert] = useState<{device: string, type: string, time: string} | null>(null);
+
+  useEffect(() => {
+    const socket = io('http://localhost:8000', {
+       transports: ['polling', 'websocket'],
+    });
+
+    socket.on('connect', () => {
+       console.log('Connected to socket.io backend');
+    });
+
+    socket.on('trust_update', (data) => {
+        console.log('🔥 RECEIVED TRUST UPDATE:', data);
+        setTrustScores(prev => {
+            const newScores = { ...prev, [data.device_id]: data.score };
+            const values = Object.values(newScores);
+            setActiveDevices(values.length);
+            const computedAvg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+            if (Number.isFinite(computedAvg)) {
+                setAvgTrustScore(computedAvg);
+            }
+            setCriticalAlerts(values.filter(v => v < 40).length);
+            return newScores;
+        });
+    });
+
+    socket.on('new_alert', (data) => {
+        setThreatsMitigated(prev => prev + 1);
+        setLatestAlert({
+            device: data.device || 'UNKNOWN',
+            type: data.type || 'Suspicious Activity',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+    });
+
+    socket.onAny((event, data) => {
+       console.log('SOCKET EVENT:', event, data);
+       if (event === 'trust_update' || event === 'telemetry_ping' || event === 'new_alert') {
+           const div = document.createElement('div');
+           div.style.cssText = 'position:relative;z-index:9999;background:black;color:#3edcff;font-family:monospace;padding:2px;font-size:10px;border-bottom:1px solid #333;';
+           div.innerText = `[${new Date().toISOString()}] ${event} => ${JSON.stringify(data).substring(0, 50)}...`;
+           const container = document.getElementById('ws-logs-container');
+           if (container) {
+               container.prepend(div);
+               if (container.children.length > 10) {
+                   container.lastChild?.remove();
+               }
+           }
+       }
+    });
+
+    return () => {
+       socket.disconnect();
+    };
+  }, []);
+
   const kpis = [
-    { title: 'Active Devices', value: '50', icon: Wifi, color: 'text-green-400', glow: 'bg-green-500' },
-    { title: 'Critical Alerts', value: isolatedNode ? '2' : '3', icon: ShieldAlert, color: 'text-red-500', glow: 'bg-red-600' },
-    { title: 'Avg Trust Score', value: isolatedNode ? '89.4' : '74.2', icon: Activity, color: 'text-[#3edcff]', glow: 'bg-[#0ea5e9]' },
-    { title: 'Threats Mitigated', value: isolatedNode ? '12' : '11', icon: Server, color: 'text-indigo-400', glow: 'bg-indigo-500' },
+    { title: 'Active Devices', value: activeDevices.toString(), icon: Wifi, color: 'text-green-400', glow: 'bg-green-500' },
+    { title: 'Critical Alerts', value: criticalAlerts.toString(), icon: ShieldAlert, color: 'text-red-500', glow: 'bg-red-600' },
+    { title: 'Avg Trust Score', value: avgTrustScore.toFixed(1), icon: Activity, color: 'text-[#3edcff]', glow: 'bg-[#0ea5e9]' },
+    { title: 'Threats Mitigated', value: threatsMitigated.toString(), icon: Server, color: 'text-indigo-400', glow: 'bg-indigo-500' },
   ];
 
   const handleIsolate = (nodeId: string) => {
@@ -131,17 +193,8 @@ export default function DashboardOverview() {
                <div className="p-3 border-b border-white/5 bg-black/40 z-10">
                  <h2 className="font-semibold text-xs text-gray-400 tracking-widest uppercase">Event Logs</h2>
                </div>
-               <div className="flex-1 p-4 font-mono text-xs space-y-2 overflow-y-auto">
+               <div id="ws-logs-container" className="flex-1 p-4 font-mono text-xs space-y-2 overflow-y-auto">
                   <div className="text-gray-500">Listening to socket.io...</div>
-                  {isolatedNode && (
-                     <motion.div 
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="text-green-400 border-l-2 border-green-500 pl-2"
-                     >
-                        [03:17:42] device_isolated — {isolatedNode}
-                     </motion.div>
-                  )}
                </div>
              </div>
           </div>
@@ -149,7 +202,7 @@ export default function DashboardOverview() {
         </div>
 
         {/* Bottom Alert Queue */}
-        {!isolatedNode && (
+        {!isolatedNode && latestAlert && (
             <motion.div 
                exit={{ opacity: 0, scale: 0.95 }}
                className="bg-[#450a0a]/40 backdrop-blur-3xl border border-red-500/40 rounded-2xl p-5 shadow-[0_0_40px_rgba(220,38,38,0.15)] ring-1 ring-red-500/50 flex items-center gap-6 relative overflow-hidden"
@@ -157,12 +210,12 @@ export default function DashboardOverview() {
                <div className="absolute inset-0 bg-red-600/10 animate-pulse" />
                <div className="w-4 h-4 rounded-full bg-red-500 shadow-[0_0_15px_#ef4444] animate-ping relative z-10" />
                <div className="relative z-10 flex-1">
-                  <span className="text-red-500 font-mono font-bold text-xl md:text-2xl tracking-widest drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]">
-                  BOTNET C2 BEACONING — MED-0007 — CRITICAL
+                  <span className="text-red-500 font-mono font-bold text-xl md:text-2xl tracking-widest drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] uppercase">
+                  {latestAlert.type} — {latestAlert.device} — CRITICAL
                   </span>
                </div>
                <div className="relative z-10 text-red-400/80 font-mono text-sm tracking-widest border border-red-500/30 px-3 py-1 rounded bg-red-950/50">
-                  DETECTED @ 02:14 AM
+                  DETECTED @ {latestAlert.time}
                </div>
             </motion.div>
         )}

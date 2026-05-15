@@ -22,6 +22,8 @@ class VAETwinScorer:
                 try:
                     with open(json_path, 'r') as f:
                         norm_params = json.load(f)
+                        if loaded_count == 0:
+                            logger.info(f"Loaded norm keys from {device_id}: {list(norm_params.keys())}")
                         
                     model = DeviceVAE(input_dim=14)
                     model.load_state_dict(torch.load(pt_path))
@@ -47,7 +49,9 @@ class VAETwinScorer:
         
         # Normalize features
         normalized_features = []
-        for val, f_min, f_max in zip(feature_vector, norm['min'], norm['max']):
+        f_mins = norm.get('min', norm.get('mins', norm.get('feature_mins', [0]*14)))
+        f_maxs = norm.get('max', norm.get('maxs', norm.get('feature_maxs', [1]*14)))
+        for val, f_min, f_max in zip(feature_vector, f_mins, f_maxs):
             if f_max - f_min == 0:
                 normalized_features.append(0.0)
             else:
