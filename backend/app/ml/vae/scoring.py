@@ -1,75 +1,69 @@
 import os
+import json
 import logging
-
-try:
-    import torch
-    import torch.nn.functional as F
-    from app.ml.vae.model import DeviceVAE
-except ImportError:
-    torch = None
-    F = None
-    DeviceVAE = None
+import torch
+import torch.nn.functional as F
+from app.ml.vae.model import DeviceVAE
 
 logger = logging.getLogger(__name__)
 
-class VAE_TwinScorer:
-    """
-    Evaluates new incoming device telemetry (14D vectors) against the 
-    pre-trained VAE logic model to generate a Twin Deviation Score 0.0-1.0.
-    1.0 means practically identical to baseline (No Anomaly).
-    0.0 means completely out of bounds (100% Anomaly).
-    """
-    
-    def __init__(self, models_dir: str = "models_trained/"):
-        self.models_dir = models_dir
-        self.device_twins = {} # Cache loaded PyTorch models
-
-    def load_twin(self, device_id: str) -> DeviceVAE:
-        """Hydrate the correct Digital Twin into memory."""
-        if device_id in self.device_twins:
-            return self.device_twins[device_id]
+class VAETwinScorer:
+    def __init__(self):
+        self.models_dir = "models_trained/"
+        self.twins = {}
+        loaded_count = 0
+        
+        for i in range(1, 51):
+            device_id = f"SIM-{i:04d}"
+            pt_path = os.path.join(self.models_dir, f"vae_{device_id}.pt")
+            json_path = os.path.join(self.models_dir, f"vae_{device_id}_norm.json")
             
-        model_path = os.path.join(self.models_dir, f"vae_{device_id}.pt")
+            if os.path.exists(pt_path) and os.path.exists(json_path):
+                try:
+                    with open(json_path, 'r') as f:
+                        norm_params = json.load(f)
+                        
+                    model = DeviceVAE(input_dim=14)
+                    model.load_state_dict(torch.load(pt_path))
+                    model.eval()
+                    
+                    self.twins[device_id] = {
+                        'model': model,
+                        'norm': norm_params
+                    }
+                    loaded_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to load twin for {device_id}: {e}")
+                    
+        logger.info(f"Loaded {loaded_count} VAE Digital Twins successfully.")
+
+    def score(self, device_id: str, feature_vector: list[float]) -> float:
+        if device_id not in self.twins:
+            return 0.0
+            
+        twin = self.twins[device_id]
+        model = twin['model']
+        norm = twin['norm']
         
-        # In a real environment, wait or trigger baseline training if missing
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Digital Twin not found for {device_id}")
-
-        model = DeviceVAE(input_dim=14)
-        model.load_state_dict(torch.load(model_path))
-        model.eval()
-        
-        self.device_twins[device_id] = model
-        return model
-
-    def score_deviation(self, device_id: str, current_features: list[float]) -> float:
-        """
-        Calculates how heavily a new piece of telemetry data deviates from
-        what the Digital Twin predicts is normal behavior for this device.
-        """
-        try:
-            model = self.load_twin(device_id)
-        except FileNotFoundError:
-            # Not scored if baseline isn't finished training
-            return -1.0 
-
-        # Forward pass without calculating gradients
+        # Normalize features
+        normalized_features = []
+        for val, f_min, f_max in zip(feature_vector, norm['min'], norm['max']):
+            if f_max - f_min == 0:
+                normalized_features.append(0.0)
+            else:
+                normalized_features.append((val - f_min) / (f_max - f_min))
+                
         with torch.no_grad():
-            tensor_x = torch.FloatTensor(current_features)
+            tensor_x = torch.FloatTensor(normalized_features).unsqueeze(0)
             recon_x, mu, logvar = model(tensor_x)
+            mse = F.mse_loss(recon_x, tensor_x, reduction='mean').item()
             
-            # Reconstruction Mean Squared Error
-            mse = F.mse_loss(recon_x, tensor_x, reduction='sum').item()
-            
-            # Normalize MSE into a bounded 0-1 Trust Score
-            # If MSE is near 0, score is 1.0 (perfectly normal).
-            # Example heuristic: Exponential decay based on empirical MSE thresholds.
-            # Assuming average normal MSE ~ 0.5, anomalous ~ >5.0
-            
-            # Bound it using exponential mapping
-            deviation_score = max(0.0, min(1.0, 1.0 - (mse / 10.0)))
+            # Normalize to 0-1 anomaly score with threshold 0.5
+            anomaly_score = max(0.0, min(1.0, mse / 0.5))
+            return float(anomaly_score)
 
-            return deviation_score
+    def score_deviation(self, device_id: str, feature_vector: list[float]) -> float:
+        """Alias to support existing pipeline calls."""
+        return self.score(device_id, feature_vector)
 
-# Singleton Instance
-twin_scorer = VAE_TwinScorer()
+twin_scorer = VAETwinScorer()

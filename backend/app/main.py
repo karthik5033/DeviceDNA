@@ -1,9 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 import uvicorn
 import socketio
 
 from contextlib import asynccontextmanager
+
+# Configure root logger so all app.services.* / app.ml.* loggers emit to stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+)
 
 from app.services.telemetry import TelemetryService
 from app.api.routes import trust

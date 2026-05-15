@@ -1,0 +1,358 @@
+# DeviceDNA — Part 3: Simulator, Frontend & Project Status
+
+## Internals, Dashboard Architecture, Gap Analysis & Roadmap
+
+---
+
+## 1. Telemetry Simulator — Deep Internals
+
+### 1.1 Traffic Generation Math
+
+The simulator creates statistically realistic network flows by sampling from **Gaussian (normal) distributions** parameterized per device class.
+
+For each flow, the [traffic_generator.py](file:///d:/coding_files/Projects/DeviceDNA/backend/simulator/traffic_generator.py) performs:
+
+**Protocol Selection** — Weighted random sampling:
+```python
+# Camera profile: RTSP=0.45, HTTP=0.25, HTTPS=0.15, DNS=0.10, NTP=0.05
+protocol = random.choices(protocols, weights=probs, k=1)[0]
+```
+This uses Python's `random.choices()` which implements **weighted sampling with replacement** — each flow independently draws a protocol from the probability distribution. Over 1000 flows, the empirical protocol ratios converge to the defined probabilities by the Law of Large Numbers.
+
+**External Traffic Decision** — Gaussian-sampled probability:
+```python
+external_ratio = random.gauss(mean=0.15, std=0.05)  # Camera: 15% ± 5%
+external_ratio = clamp(external_ratio, 0.0, 1.0)
+is_external = random.random() < external_ratio       # Bernoulli trial
+```
+This creates a **two-stage stochastic process**: first sample the device's current external tendency from a Gaussian, then each flow makes a Bernoulli decision. This models real-world variance where a camera might be 10% external one 5-minute window and 20% the next.
+
+**Byte Count** — Gaussian with floor:
+```python
+avg_bytes = max(100, int(random.gauss(mean=15000, std=5000)))  # Camera
+```
+The `max(100, ...)` prevents negative/tiny byte counts from the Gaussian tail.
+
+**Batch Generation** — Device selection is **weighted by expected flow frequency**:
+```python
+weights = [profile['avg_flows_per_5min'][0] for d in FLEET]  # [80, 20, 15, 30, 40, 50]
+device = random.choices(FLEET, weights=weights, k=1)[0]
+```
+Cameras (80 flows/5min) appear ~4× more often than thermostats (15 flows/5min) in each batch, matching real-world traffic distribution.
+
+### 1.2 Kafka Streaming Loop
+
+The [simulator main.py](file:///d:/coding_files/Projects/DeviceDNA/backend/simulator/main.py) runs an infinite async loop:
+
+```
+Every 0.5 seconds:
+├── Generate 100 normal flows (weighted across 50 devices)
+├── Every 100th cycle (~50 sec): inject 4 attack flows
+├── Publish each flow to Kafka topic "raw-flows"
+└── Log progress every 10 cycles
+```
+
+**Throughput**: ~200 flows/second to Kafka. The `AIOKafkaProducer` uses async I/O so publishing doesn't block flow generation.
+
+**Retry logic**: 5 attempts with 5-second delays if Kafka isn't ready (common when Docker containers are still starting).
+
+### 1.3 Attack Injection — Detection Matrix
+
+| Scenario | Injected Fields | Why It's Anomalous | Which Features Change |
+|----------|----------------|--------------------|-----------------------|
+| **Botnet C2** | `dst_ip=203.0.113.4`, `dst_port=4444`, `bytes=128` | New external IP, never-seen port, tiny beacon payload | dims 11↑, 12↑, 13↑, 1↓, 3↓ |
+| **Slow Exfil** | `bytes=5000-8000`, `protocol=HTTPS` | 10-16× normal byte count for a sensor (avg=500) | dims 1↑, 3↑ |
+| **Lateral Movement** | `dst_ip=medical_peer`, `dst_port=22` | Medical devices never SSH to each other | New graph edge (GNN), dim 12↑ |
+| **Policy Violation** | `dst_ip=185.220.101.43` (TOR exit) | Thermostat contacting known TOR node | dim 13↑, policy rule match |
+
+---
+
+## 2. Frontend Dashboard — Complete Architecture
+
+### 2.1 Framework & Routing
+
+**Stack**: Next.js 14 (App Router) + React 18 + TypeScript + Tailwind CSS
+
+The App Router uses file-system conventions for routing:
+
+```
+frontend/app/
+├── layout.tsx          ← Root layout (html, body, font imports)
+├── page.tsx            ← Landing page (/)
+├── globals.css         ← Global styles
+└── dashboard/
+    ├── layout.tsx      ← Dashboard layout (sidebar + header wrapper)
+    ├── page.tsx        ← SOC Overview (/dashboard)
+    ├── alerts/page.tsx        ← Alert Management
+    ├── topology/page.tsx      ← Full Network Map
+    ├── predict/page.tsx       ← Predictive Risk
+    ├── policies/page.tsx      ← NLP Policy Engine
+    └── replay/page.tsx        ← Attack Replay
+```
+
+**Layout nesting**: `dashboard/layout.tsx` wraps all `/dashboard/*` pages with the persistent sidebar and header. Navigation between dashboard pages only re-renders the content area — the sidebar/header stay mounted.
+
+### 2.2 Frontend Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `next` | 14.2.35 | React meta-framework |
+| `react` | ^18 | UI library |
+| `d3` | ^7.9.0 | Low-level SVG data visualization (network topology) |
+| `recharts` | ^3.7.0 | Declarative React chart components (trust timeline) |
+| `@visx/heatmap` + `@visx/scale` | ^3.12.0 | SVG heatmap primitives (drift calendar) |
+| `framer-motion` | ^12.34.3 | Animation library (page transitions, micro-interactions) |
+| `socket.io-client` | ^4.8.3 | Real-time WebSocket connection to backend |
+| `lucide-react` | ^0.575.0 | Icon library (Shield, AlertTriangle, Activity, etc.) |
+| `zustand` | ^5.0.11 | State management (installed but not yet used) |
+| `clsx` + `tailwind-merge` | Latest | Conditional CSS class composition |
+
+### 2.3 The Three Core Visualizations
+
+#### A. Network Topology Map — D3.js Force-Directed Graph
+
+**File**: [NetworkTopologyMap.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/visualizations/NetworkTopologyMap.tsx) (9,033 bytes)
+
+This is the centerpiece visualization. It renders all 50 devices as nodes in an interactive force-directed graph:
+
+- **Force simulation**: `d3.forceSimulation()` with charge repulsion, link attraction, center gravity, and collision prevention
+- **Node coloring**: Green (score ≥ 80), Yellow (40-79), Red (< 40) with animated glow on anomalous nodes
+- **Node sizing**: Scales with traffic volume
+- **Interactions**: Drag nodes to reposition, click to drill into device details
+- **Live updates**: WebSocket `telemetry_ping` events animate edge pulses between communicating nodes
+
+**Current state**: Generates its own 50 mock nodes with randomized positions and trust scores. Does NOT fetch from the backend API.
+
+#### B. Trust Score Timeline — Recharts Line Chart
+
+**File**: [TrustScoreTimeline.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/visualizations/TrustScoreTimeline.tsx) (6,936 bytes)
+
+- **Data**: 12-hour history with trust score data points every 5 minutes
+- **Threshold lines**: Horizontal reference lines at score 40 (suspicious) and 80 (trusted)
+- **Live updates**: When `new_alert` WebSocket events arrive, the chart drops the affected device's score and shows a recovery curve
+- **Area fill**: Green gradient fill under the score line, switching to red when below threshold
+
+**Current state**: Self-generates mock timeseries data. WebSocket events trigger visual score drops.
+
+#### C. CUSUM Drift Heatmap — visx Calendar Grid
+
+**File**: [DriftHeatmap.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/visualizations/DriftHeatmap.tsx) (5,082 bytes)
+
+- **Layout**: 7 columns (days) × 24 rows (hours) = 168 cells
+- **Color scale**: White (no drift) → Yellow (mild) → Orange (moderate) → Red (severe)
+- **Mock pattern**: Simulates attack signatures on Tuesday/Wednesday nights (elevated drift scores from 11 PM – 3 AM)
+- **Tooltips**: Custom hover tooltips showing exact drift score, day, and hour
+
+### 2.4 Layout Components
+
+- [Sidebar.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/layout/Sidebar.tsx) — Navigation sidebar with icons for each dashboard page (Overview, Topology, Alerts, Predict, Policies, Replay)
+- [Header.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/layout/Header.tsx) — Top bar with search, notifications bell, and user avatar
+
+### 2.5 Landing Page
+
+The root [page.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/app/page.tsx) (15,947 bytes) is a premium glassmorphism landing page with:
+- Animated gradient background
+- API status indicator (fetches `/api/health` from backend)
+- Hero section with platform description
+- Feature cards with hover effects
+- Framer Motion entrance animations
+
+### 2.6 WebSocket Integration
+
+The frontend connects to `http://localhost:8000` using `socket.io-client`. Events handled:
+
+```typescript
+socket.on('new_alert', (data) => {
+  // Add to alert queue, flash node on topology map
+  // Drop trust score on timeline chart
+});
+
+socket.on('telemetry_ping', (data) => {
+  // Animate edge pulse on D3 network map
+});
+
+socket.on('device_isolated', (data) => {
+  // Show success notification, gray out node
+});
+```
+
+> [!IMPORTANT]
+> All dashboard pages currently use **local `useState` hooks** for state management. The installed Zustand store (`frontend/store/`) is empty. There is no centralized API client (`lib/api.ts`) — only the landing page health check makes a real backend API call.
+
+---
+
+## 3. Current Project Status — Phase-by-Phase
+
+```
+Phase 0  ████████████████████  100%  COMPLETE       Infrastructure & Scaffolding
+Phase 1  ██████████████░░░░░░   75%  Mostly Done    Simulator & Data Pipeline
+Phase 2  █████████░░░░░░░░░░░   50%  Half Done      Digital Twin & DNA Fingerprint
+Phase 3  ████████░░░░░░░░░░░░   40%  In Progress    ML Ensemble & Trust Engine
+Phase 4  ░░░░░░░░░░░░░░░░░░░░    0%  NOT STARTED    Explainability (SHAP)
+Phase 5  ██████████████████░░   90%  Near Done      SOC Dashboard Frontend
+Phase 6  █████░░░░░░░░░░░░░░░   25%  UI Only        NLP Policy & Advanced Features
+Phase 7  █░░░░░░░░░░░░░░░░░░░    5%  Barely Started Autonomous Response
+Phase 8  ░░░░░░░░░░░░░░░░░░░░    0%  NOT STARTED    Polish & Deployment
+```
+
+### What Actually Works Right Now
+
+| Component | Runs? | Real Data? |
+|-----------|-------|------------|
+| `docker compose up` (infra) | ✅ | Real services |
+| `uvicorn app.main:app --reload` (backend) | ✅ | Health check works |
+| `python -m simulator.main` (simulator) | ✅ | Real Kafka streaming |
+| `npm run dev` (frontend) | ✅ | All mock data |
+| Backend → Frontend WebSocket | ✅ | Real alert streaming from Kafka |
+| `POST /api/trust/evaluate` | ⚠️ Runs | Returns 0.0 (no trained models) |
+| `GET /api/trust/{id}/current` | ⚠️ Runs | Hardcoded to 100.0 |
+| D3 Network Topology | ✅ Renders | Self-generated mock nodes |
+| Trust Score Timeline | ✅ Renders | Self-generated mock history |
+| CUSUM Drift Heatmap | ✅ Renders | Synthetic attack pattern |
+
+---
+
+## 4. The 7 Critical Integration Gaps
+
+### Gap 1: Telemetry Pipeline is Disconnected from ML
+
+**Location**: [telemetry.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/services/telemetry.py) `_process_flow()` method
+
+The Kafka consumer receives flows and broadcasts WebSocket events, but **never calls**:
+- `feature_extraction.extract_features()` to compute feature vectors
+- `master_trust_engine.evaluate_device()` to score devices
+- `influx_db.write_flow()` to persist to InfluxDB
+
+This is the single biggest gap — the entire ML pipeline is disconnected from live data.
+
+### Gap 2: No Trained Models Exist
+
+**Location**: `backend/models_trained/` directory — **does not exist**
+
+- VAE scoring returns `-1.0` (FileNotFoundError caught)
+- IF scoring returns `0.0` (FileNotFoundError caught)
+- No `.pt` or `.joblib` files have been generated
+
+**Fix**: Run `python -m training.train_vae` from `backend/` to train 50 VAE Digital Twins.
+
+### Gap 3: Trust Score API Returns Hardcoded Data
+
+**Location**: [trust.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/api/routes/trust.py) line 48-59
+
+`GET /api/trust/{device_id}/current` always returns `trust_score: 100.0` with all pillars at 0.0. Should read from Redis cache.
+
+### Gap 4: Frontend Uses All Mock Data
+
+**Location**: All dashboard pages
+
+Every visualization component generates its own fake data internally:
+- Network map creates 50 random nodes
+- Timeline generates 12-hour fake history
+- Heatmap uses hardcoded Tue/Wed night patterns
+- Alerts are hardcoded JSON arrays
+
+### Gap 5: Missing Training Scripts
+
+| Script Needed | For Model | Status |
+|---------------|-----------|--------|
+| `train_vae.py` | VAE Digital Twin | ✅ Exists (not run) |
+| `train_isolation_forest.py` | Isolation Forest | ❌ Missing |
+| `train_lstm.py` | LSTM Temporal | ❌ Missing |
+| `train_gnn.py` | GNN GraphSAGE | ❌ Missing |
+
+### Gap 6: Missing Python Dependencies
+
+`requirements.txt` is missing critical ML packages:
+- `torch`, `torchvision` — PyTorch (required for VAE, LSTM, GNN)
+- `numpy` — Numerical computing
+- `scikit-learn` — Isolation Forest
+- `joblib` — Model serialization
+- `torch-geometric` — GNN (GraphSAGE)
+- `shap` — Explainability
+
+### Gap 7: No Data Persistence Layer
+
+- Trust scores are computed but **never saved** to Redis or InfluxDB
+- No Redis client exists in `backend/app/db/`
+- No PostgreSQL connection pool exists
+- Feature vectors are never written to InfluxDB
+- Alert auto-creation pipeline doesn't exist
+
+---
+
+## 5. Prioritized Build Roadmap
+
+### Tier 1 — Make the ML Pipeline Actually Work
+
+| # | Task | Impact |
+|---|------|--------|
+| 1 | Add missing Python deps to `requirements.txt` | Unblocks all ML code |
+| 2 | Run `python -m training.train_vae` | Creates 50 Digital Twin `.pt` files |
+| 3 | Create `train_isolation_forest.py` | Creates 6 per-class `.joblib` models |
+| 4 | Wire telemetry pipeline end-to-end | **The most critical task** — connects Kafka → features → ML → scores → Redis → InfluxDB → WebSocket |
+| 5 | Make `GET /api/trust/{id}/current` read from Redis | Real trust scores on the dashboard |
+
+### Tier 2 — Connect Frontend to Real Backend
+
+| # | Task | Impact |
+|---|------|--------|
+| 6 | Create `frontend/lib/api.ts` | Centralized API client for all backend calls |
+| 7 | Replace mock data with API calls | D3 map → real devices, timeline → real scores, alerts → real alerts |
+| 8 | Add Zustand stores | Global state for device list, alerts, trust scores |
+
+### Tier 3 — Complete the ML Ensemble
+
+| # | Task | Impact |
+|---|------|--------|
+| 9 | Create `train_lstm.py` + integrate into trust engine | Temporal anomaly detection active |
+| 10 | Create `train_gnn.py` + install `torch-geometric` | Lateral movement detection active |
+| 11 | Replace hardcoded `0.0` scores in trust engine | LSTM and GNN contribute to trust calculation |
+
+### Tier 4 — Explainability & Policy Engine
+
+| # | Task | Impact |
+|---|------|--------|
+| 12 | Add SHAP explainability | Feature attribution for every alert |
+| 13 | Build Threat Intelligence Brief generator | Human-readable alert explanations |
+| 14 | Create alert auto-generation pipeline | Trust drop → alert → PostgreSQL → dashboard |
+| 15 | Implement NLP policy parser backend | BERT-based natural language → security rules |
+
+### Tier 5 — Advanced Features & Polish
+
+| # | Task | Impact |
+|---|------|--------|
+| 16 | Device detail drawer/page | Click any node for full device profile |
+| 17 | Attack replay backend | Query InfluxDB by time range for forensics |
+| 18 | What-if simulator | "What happens if we isolate Device X?" |
+| 19 | Autonomous response engine | Trust < 20 → auto-isolate/sandbox/throttle |
+| 20 | Loading states and error boundaries | Production-quality UX |
+| 21 | Docker compose finalization (include backend) | One-command deployment |
+
+---
+
+## 6. Files That Don't Exist Yet
+
+| Planned File | Purpose |
+|-------------|---------|
+| `backend/app/config.py` | Centralized settings & env management |
+| `backend/app/db/postgres.py` | PostgreSQL connection pool |
+| `backend/app/db/redis.py` | Redis client |
+| `backend/app/services/policy_engine.py` | NLP policy evaluation |
+| `backend/app/services/explainability.py` | SHAP + TIB generation |
+| `backend/app/services/response_engine.py` | Autonomous response actions |
+| `backend/app/ml/nlp/` | BERT policy parser model |
+| `backend/app/ml/ensemble.py` | Weighted ensemble orchestration |
+| `backend/app/api/routes/devices.py` | Device CRUD endpoints |
+| `backend/app/api/routes/alerts.py` | Alert endpoints |
+| `backend/app/api/routes/policies.py` | Policy CRUD + NLP endpoints |
+| `backend/training/train_isolation_forest.py` | IF training script |
+| `backend/training/train_lstm.py` | LSTM training script |
+| `backend/training/train_gnn.py` | GNN training script |
+| `frontend/lib/api.ts` | Backend API client |
+| `frontend/lib/store.ts` | Zustand stores |
+| `frontend/hooks/` | Custom React hooks |
+| `frontend/types/` | TypeScript type definitions |
+
+---
+
+> **Summary**: DeviceDNA has a strong architectural foundation — the Docker infrastructure, simulator, 4 ML model architectures, and a polished frontend are all scaffolded. The critical missing piece is the **end-to-end pipeline integration** (Gap 1) that connects Kafka → feature extraction → ML scoring → persistence → dashboard. Once that bridge is built, the platform transitions from a demo with mock data to a functional AI security system.

@@ -1,9 +1,12 @@
 import asyncio
 import json
 import logging
+import traceback
 from datetime import datetime
 from aiokafka import AIOKafkaConsumer
 from app.api.ws import sio
+from app.services.feature_extraction import extract_features
+from app.services.trust_engine import master_trust_engine
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +32,24 @@ class TelemetryService:
             )
             await self.consumer.start()
             logger.info(f"TelemetryService: Listening to {RAW_TOPIC} on {KAFKA_BROKER}")
-            asyncio.create_task(self._consume())
+            task = asyncio.create_task(self._consume())
+            
+            def _handle_task_result(t):
+                try:
+                    t.result()
+                except Exception as ex:
+                    import traceback
+                    logger.error(f"Task crashed unhandled:\n{traceback.format_exc()}")
+                    
+            task.add_done_callback(_handle_task_result)
         except Exception as e:
             logger.error(f"Kafka connection failed (Will not stream telemetry): {e}")
 
     async def _consume(self):
-        try:
-            async for msg in self.consumer:
-                flow = msg.value
-                await self._process_flow(flow)
-        except Exception as e:
-            logger.error(f"Error consuming telemetry: {e}")
-        finally:
-            if self.consumer:
-                await self.consumer.stop()
+        async for msg in self.consumer:
+            flow = msg.value
+            logger.info(f"Received flow from Kafka: {flow.get('flow_id', 'unknown')}")
+            await self._process_flow(flow)
 
     async def _process_flow(self, flow):
         # We broadcast some metrics up to the UI if it's an anomaly or a flow ping
@@ -66,6 +73,25 @@ class TelemetryService:
                 'target': flow.get('dst_ip'),
                 'bytes': flow.get('bytes')
             })
+
+        # ML Pipeline: extract features, evaluate trust, and broadcast score
+        # ML Pipeline: extract features, evaluate trust, and broadcast score
+        features = extract_features(
+            flow.get('device_id', 'unknown'),
+            flow.get('device_class', 'unknown'),
+            [flow]
+        )
+        trust_score = await master_trust_engine.evaluate_device(
+            flow.get('device_id', 'unknown'),
+            flow.get('device_class', 'unknown'),
+            features.to_tensor_list() if hasattr(features, 'to_tensor_list') else [],
+            {}
+        )
+        await sio.emit('trust_update', {
+            'device_id': flow.get('device_id'),
+            'score': trust_score,
+            'timestamp': datetime.utcnow().isoformat()
+        })
 
     async def stop(self):
         if self.consumer:

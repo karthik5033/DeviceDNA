@@ -1,0 +1,334 @@
+ DeviceDNA — Comprehensive Technical Report
+
+## Part 1: Project Identity, Architecture & Technology Stack
+
+---
+
+## 1. What is DeviceDNA?
+
+DeviceDNA is an **AI-powered cybersecurity intelligence platform** built specifically for **Internet of Things (IoT) networks**. It was designed for the **Eclipse Hackathon 2025** to demonstrate a next-generation approach to IoT security that goes far beyond traditional firewalls and signature-based detection.
+
+### The Core Problem
+
+Modern IoT deployments (hospitals, factories, smart buildings) have thousands of heterogeneous devices — cameras, sensors, thermostats, medical monitors, industrial controllers — all constantly transmitting network traffic. These devices:
+
+- **Cannot run antivirus software** — they lack the CPU/RAM for endpoint agents
+- **Use diverse protocols** — RTSP, MQTT, Modbus, HL7, OPC-UA, not just HTTP
+- **Are attacked stealthily** — hackers don't crash them; they silently hijack them to exfiltrate data or pivot laterally across networks
+- **Generate massive telemetry** — thousands of network flows per second that no human team can monitor
+
+Traditional security fails because:
+- **Firewall rules** are static and can be bypassed by using allowed ports
+- **Signature-based detection** only catches known malware, not novel attacks
+- **Threshold alerts** (e.g., "alert if traffic > 10MB") miss slow, gradual data theft
+
+### The DeviceDNA Solution
+
+DeviceDNA uses **machine learning** to learn what each device *normally* does — building a **Digital Twin** (a mathematical behavioral model) — and then continuously compares reality against that model. Every device gets a **Trust Score (0–100)** updated every 5 minutes. When behavior deviates from the learned normal, the score drops, alerts fire, and the system can autonomously isolate the device.
+
+> **Key Differentiator**: DeviceDNA doesn't just detect obvious attacks. It catches **slow, stealthy behavioral drift** (e.g., a sensor uploading 5% more data each week) that would be invisible to all traditional security tools.
+
+---
+
+## 2. System Architecture
+
+DeviceDNA follows a **4-layer, stream-processing architecture**. Data flows continuously from bottom to top:
+
+```mermaid
+graph TB
+    subgraph "Layer 1 — Data Infrastructure"
+        PG[(PostgreSQL 16)]
+        IF[(InfluxDB 2.7)]
+        RD[(Redis 7)]
+        KF[Apache Kafka]
+        ZK[Zookeeper]
+    end
+
+    subgraph "Layer 2 — Telemetry Simulator"
+        SIM[Python Simulator]
+        DP[Device Profiles × 6 classes]
+        TG[Traffic Generator]
+        ATK[Attack Scenario Injector]
+    end
+
+    subgraph "Layer 3 — ML Backend API"
+        FA[FastAPI + Uvicorn]
+        TS[Telemetry Service]
+        FE[Feature Extraction Engine]
+        TE[Trust Score Engine]
+        VAE[VAE Digital Twin]
+        ISO[Isolation Forest]
+        LSTM_M[LSTM Temporal]
+        GNN_M[GNN GraphSAGE]
+        CUSUM[CUSUM Drift Engine]
+        DNA[DNA Fingerprint Service]
+    end
+
+    subgraph "Layer 4 — SOC Dashboard"
+        NX[Next.js 14 + React 18]
+        D3[D3.js Network Map]
+        RC[Recharts Timeline]
+        HM[Drift Heatmap]
+        WS[Socket.IO Client]
+    end
+
+    SIM -->|"Produces JSON flows"| KF
+    KF -->|"raw-flows topic"| TS
+    TS -->|"Broadcasts alerts"| WS
+    TS -.->|"NOT YET WIRED"| FE
+    FE -.->|"14D vectors"| TE
+    TE -->|"Pillar 1: 35%"| VAE
+    TE -->|"Pillar 2: 25%"| ISO
+    TE -->|"Pillar 3: 20%"| CUSUM
+    TE -.->|"Stubbed: 0%"| LSTM_M
+    TE -.->|"Stubbed: 0%"| GNN_M
+    TE -.->|"Scores"| RD
+    TE -.->|"History"| IF
+    FA -->|"REST API"| NX
+    WS -->|"Live events"| NX
+    PG -->|"Device/Alert records"| FA
+```
+
+> [!IMPORTANT]
+> Dashed lines (-.->)  represent connections that are **architecturally planned but not yet wired** in the current codebase. Solid lines represent working connections.
+
+---
+
+### 2.1 Layer 1 — Data Infrastructure (Docker Compose)
+
+All infrastructure runs inside Docker containers orchestrated by [docker-compose.yml](file:///d:/coding_files/Projects/DeviceDNA/docker-compose.yml). A single `docker compose up` boots the entire data layer.
+
+| Service | Image | Port | Role |
+|---------|-------|------|------|
+| **PostgreSQL 16** | `postgres:16-alpine` | 5432 | Relational store for device records, alerts, platform settings |
+| **InfluxDB 2.7** | `influxdb:2.7` | 8086 | Time-series DB for telemetry history and feature vectors |
+| **Redis 7** | `redis:7-alpine` | 6379 | In-memory cache for real-time trust score lookups |
+| **Apache Kafka** | `confluentinc/cp-kafka:7.5.0` | 9092 / 29092 | High-throughput message queue for streaming telemetry |
+| **Zookeeper** | `confluentinc/cp-zookeeper:7.5.0` | 2181 | Kafka cluster coordination |
+
+**Database Schema** ([init.sql](file:///d:/coding_files/Projects/DeviceDNA/backend/db_init/init.sql)):
+- `devices` — UUID PK, name, MAC, IP, device_class (enum of 6 types), VLAN, status (online/isolated/sandboxed), baseline tracking timestamps
+- `alerts` — UUID PK, FK to device, severity (critical/high/medium/low), headline, SHAP values (JSONB), response action tracking
+- `platform_settings` — Key-value config store, seeded with `response_mode: "advisory"` and trust thresholds
+
+---
+
+### 2.2 Layer 2 — Telemetry Simulator
+
+Since we can't safely test on production hospital/factory networks, a Python-based simulator generates realistic network traffic for 50 IoT devices across 6 classes.
+
+**Source files:**
+- [device_profiles.py](file:///d:/coding_files/Projects/DeviceDNA/backend/simulator/device_profiles.py) — Defines 6 device class behavioral profiles
+- [traffic_generator.py](file:///d:/coding_files/Projects/DeviceDNA/backend/simulator/traffic_generator.py) — Generates individual flow records
+- [attack_scenarios.py](file:///d:/coding_files/Projects/DeviceDNA/backend/simulator/attack_scenarios.py) — Injects 4 distinct attack patterns
+- [main.py](file:///d:/coding_files/Projects/DeviceDNA/backend/simulator/main.py) — Async Kafka producer loop
+
+**The 6 Device Classes and Their Behavioral DNA:**
+
+| Class | Count | VLAN | Dominant Protocol | Avg Flows/5min | Avg Bytes/Flow | External Ratio |
+|-------|-------|------|-------------------|----------------|----------------|----------------|
+| Camera | 12 | 20 | RTSP (45%) | 80 ± 15 | 15,000 ± 5,000 | 15% ± 5% |
+| Sensor | 10 | 10 | MQTT (60%) | 20 ± 5 | 500 ± 200 | 1% ± 1% |
+| Thermostat | 8 | 10 | HTTPS (50%) | 15 ± 5 | 1,000 ± 400 | 30% ± 10% |
+| Access Control | 6 | 20 | HTTPS (40%) | 30 ± 10 | 2,000 ± 800 | 10% ± 5% |
+| Medical | 8 | 30 | HL7 (35%) | 40 ± 12 | 8,000 ± 3,000 | 5% ± 3% |
+| Industrial | 6 | 40 | Modbus (40%) | 50 ± 15 | 3,000 ± 1,000 | 2% ± 1% |
+
+Each device is assigned a unique ID (`SIM-0001` through `SIM-0050`), a random MAC address, an IP within its VLAN subnet, and a set of known internal/external peer IPs.
+
+**Traffic generation** uses Gaussian distributions (`random.gauss(mean, std)`) seeded from each class profile to create statistically realistic flow records with proper protocol distributions, byte counts, and external traffic ratios.
+
+**The 4 Attack Scenarios** (injected every 100 cycles ≈ 50 seconds):
+
+| # | Name | Target | Behavior | Detected By |
+|---|------|--------|----------|-------------|
+| 1 | **Botnet C2 Beaconing** | Camera (SIM-0001) | Contacts 3 new malicious external IPs on port 4444 with 128-byte beacon payloads | VAE + Isolation Forest |
+| 2 | **Slow Data Exfiltration** | Sensor (SIM-0013) | Upload volume jumps to 5,000–8,000 bytes (vs 500 normal) over HTTPS | CUSUM Drift Engine |
+| 3 | **Lateral Movement** | Medical devices | Two medical devices that never communicated start SSH connections (port 22) | GNN GraphSAGE |
+| 4 | **NLP Policy Violation** | Thermostat | Contacts known TOR exit node IP (185.220.101.43) | Policy Engine |
+
+---
+
+### 2.3 Layer 3 — ML Backend API
+
+The backend is a **FastAPI** application wrapped in a **Socket.IO ASGI** layer, running on **Uvicorn**.
+
+**Entrypoint** ([main.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/main.py)):
+```
+FastAPI app  →  Socket.IO ASGI wrapper  →  Uvicorn server (port 8000)
+```
+
+On startup, the `TelemetryService` connects to Kafka and begins consuming from the `raw-flows` topic in a background asyncio task. The Socket.IO server handles real-time WebSocket events (`new_alert`, `telemetry_ping`, `device_isolated`).
+
+**API Endpoints:**
+| Method | Path | Purpose | Status |
+|--------|------|---------|--------|
+| `GET` | `/api/health` | Health check | ✅ Working |
+| `POST` | `/api/trust/evaluate` | Force-compute trust score for a device | ⚠️ Returns 0.0 (no trained models) |
+| `GET` | `/api/trust/{device_id}/current` | Get cached trust score | ⚠️ Hardcoded to 100.0 |
+
+**WebSocket Events:**
+| Event | Direction | Payload |
+|-------|-----------|---------|
+| `new_alert` | Server → Client | Alert object with device, severity, type, message, score |
+| `telemetry_ping` | Server → Client | Source IP, target IP, bytes (for animating topology map) |
+| `isolate_device` | Client → Server | Device ID to isolate |
+| `device_isolated` | Server → Client | Confirmation of successful isolation |
+
+---
+
+### 2.4 Layer 4 — SOC Dashboard Frontend
+
+Built with **Next.js 14** (App Router) + **React 18** + **TypeScript** + **Tailwind CSS**.
+
+**Pages:**
+| Route | Purpose | Key Visualization |
+|-------|---------|-------------------|
+| `/` | Landing page | Glassmorphism hero, API status indicator |
+| `/dashboard` | SOC Overview | KPI cards, D3 network map, alert queue, trust timeline |
+| `/dashboard/topology` | Full network map | Expanded D3 force-directed graph with legend |
+| `/dashboard/alerts` | Alert management | Severity filtering, SHAP panel (mock), isolation button |
+| `/dashboard/predict` | Predictive risk | CUSUM stats, drift heatmap, LSTM forecast panel |
+| `/dashboard/policies` | NLP policy engine | Text input, simulated BERT translation |
+| `/dashboard/replay` | Attack replay | Timeline scrub, transport controls, forensic capture |
+
+**Key Visualization Components:**
+- [NetworkTopologyMap.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/visualizations/NetworkTopologyMap.tsx) — D3.js force-directed graph, 50 nodes, trust-score coloring, drag/click interaction
+- [TrustScoreTimeline.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/visualizations/TrustScoreTimeline.tsx) — Recharts line chart with 12-hour history, threshold lines, WebSocket-driven updates
+- [DriftHeatmap.tsx](file:///d:/coding_files/Projects/DeviceDNA/frontend/components/visualizations/DriftHeatmap.tsx) — 7-day × 24-hour calendar grid with color-coded drift scores
+
+---
+
+## 3. Technology Stack — Deep Rationale
+
+### 3.1 Why Docker & Docker Compose?
+
+**Problem**: The backend requires 5 different infrastructure services (PostgreSQL, InfluxDB, Redis, Kafka, Zookeeper). Installing each natively is error-prone, version-sensitive, and non-portable.
+
+**Solution**: Docker packages each service into an isolated container with its own filesystem, dependencies, and configuration. Docker Compose defines the entire topology in a single YAML file. `docker compose up` boots everything in the correct order with health checks.
+
+**Why Alpine images?** PostgreSQL and Redis use Alpine Linux variants (`postgres:16-alpine`, `redis:7-alpine`) — these are ~5MB base images vs ~80MB for full Debian, reducing download time and attack surface.
+
+---
+
+### 3.2 Why Apache Kafka (not RabbitMQ, not Redis Pub/Sub)?
+
+**Problem**: IoT devices generate 10,000–100,000+ flow records per second. The ML pipeline cannot process them at that rate — it needs to buffer, batch, and replay data.
+
+**Why Kafka wins:**
+- **Persistent log**: Unlike Redis Pub/Sub (fire-and-forget), Kafka persists messages to disk. If the ML backend crashes and restarts, it resumes from where it left off — no data loss.
+- **Consumer groups**: Multiple consumers can read the same topic independently. The telemetry service, the feature extraction engine, and a future audit logger can each consume `raw-flows` at their own pace.
+- **Backpressure handling**: If the ML pipeline slows down, Kafka absorbs the backlog without dropping messages. RabbitMQ would start rejecting or throttling producers.
+- **Replay capability**: For the Attack Replay feature, Kafka can re-read historical messages by seeking to a specific offset/timestamp.
+
+**Zookeeper** is required by Kafka for broker coordination and leader election (Kafka is transitioning to KRaft mode but the Confluent images still use ZK).
+
+---
+
+### 3.3 Why Redis (not just PostgreSQL for everything)?
+
+**Problem**: The SOC dashboard needs to display trust scores that update every 5 minutes for 50+ devices. Querying PostgreSQL for every dashboard refresh adds ~5–50ms latency and unnecessary database load.
+
+**Solution**: Redis stores trust scores in RAM with sub-millisecond reads. The trust engine writes scores to Redis after each evaluation cycle, and the API reads from Redis for the `GET /api/trust/{id}/current` endpoint.
+
+**Redis data model** (planned):
+```
+trust:SIM-0001 → {"score": 87.3, "status": "trusted", "pillars": {...}, "updated_at": "..."}
+trust:SIM-0002 → {"score": 42.1, "status": "suspicious", ...}
+```
+
+---
+
+### 3.4 Why Two Databases (PostgreSQL + InfluxDB)?
+
+| Concern | PostgreSQL | InfluxDB |
+|---------|-----------|----------|
+| **Data type** | Relational records (devices, alerts, settings) | Time-series data (flows, feature vectors, scores over time) |
+| **Query pattern** | "Get all critical alerts for device X" | "Get the trust score trend for device X over the last 7 days" |
+| **Write pattern** | Occasional inserts/updates | Continuous high-throughput writes (thousands/sec) |
+| **Optimization** | B-tree indexes, joins, transactions | Time-partitioned columnar storage, automatic downsampling |
+
+InfluxDB is purpose-built for time-series. A query like "average bytes per 5-minute window for device SIM-0014 over the last 30 days" that would require a complex GROUP BY with window functions in PostgreSQL is a single native Flux query in InfluxDB.
+
+---
+
+### 3.5 Why FastAPI (not Flask, not Django)?
+
+- **Async-native**: Built on Starlette/ASGI, supports `async/await` natively. Critical because the Kafka consumer, InfluxDB writes, and WebSocket broadcasts are all I/O-bound async operations.
+- **Auto-generated OpenAPI docs**: Every endpoint gets Swagger UI at `/docs` for free.
+- **Pydantic validation**: Request/response schemas are validated automatically via type hints (see `EvaluateRequest` model).
+- **Socket.IO compatibility**: The `socketio.ASGIApp` wrapper integrates cleanly with FastAPI's ASGI interface, allowing both REST and WebSocket on the same port.
+
+---
+
+### 3.6 Why Next.js 14 (not plain React, not Vue)?
+
+- **App Router**: File-system routing (`/dashboard/alerts/page.tsx` → `/dashboard/alerts` URL) eliminates manual route configuration.
+- **Server Components**: Pages can fetch data server-side before rendering, reducing client-side JavaScript bundle size.
+- **Layout nesting**: The dashboard layout (sidebar + header) wraps all `/dashboard/*` pages automatically via `layout.tsx`.
+- **TypeScript-first**: Full type safety across the entire frontend.
+
+---
+
+### 3.7 Why D3.js + Recharts (not Chart.js, not Plotly)?
+
+- **D3.js** for the network topology map: D3 provides raw SVG manipulation and force-directed graph physics that no charting library can match. The topology map needs drag interaction, node coloring by trust score, glow effects on anomalous nodes, and click-to-drill — all of which require D3's low-level control.
+- **Recharts** for the trust timeline and stats charts: Recharts is a React-native wrapper around D3 that provides declarative chart components (`<LineChart>`, `<AreaChart>`) with much less code than raw D3. Perfect for standard time-series line charts.
+- **@visx/heatmap** for the drift heatmap: A React-friendly SVG primitive library from Airbnb, used for the 7×24 CUSUM drift calendar grid.
+
+---
+
+### 3.8 Why Socket.IO (not raw WebSockets)?
+
+- **Auto-reconnection**: If the dashboard loses connection, Socket.IO automatically reconnects and resubscribes. Raw WebSockets require manual reconnection logic.
+- **Event-based API**: Named events (`new_alert`, `telemetry_ping`) are cleaner than parsing raw message strings.
+- **Fallback transport**: Falls back to HTTP long-polling if WebSocket upgrade fails (corporate firewalls sometimes block WS).
+- **Room support**: Future feature — SOC analysts could subscribe to alerts for specific device groups only.
+
+---
+
+## 4. Data Flow — End to End
+
+Here is exactly what happens to a single network flow from creation to dashboard display:
+
+```
+1. Simulator picks random device (weighted by flow frequency)
+2. traffic_generator.generate_flow() creates JSON:
+   {flow_id, timestamp, device_id, src_ip, dst_ip, protocol, bytes, packets, ...}
+
+3. Kafka Producer publishes to "raw-flows" topic
+
+4. TelemetryService (Kafka Consumer) receives the flow
+
+5. _process_flow() checks if is_anomaly flag is set:
+   ├── YES → Broadcasts 'new_alert' event via Socket.IO
+   └── Always → Broadcasts 'telemetry_ping' for topology animation
+
+6. [NOT YET WIRED] Feature Extraction would:
+   ├── Buffer flows into 5-minute rolling windows per device
+   ├── Compute 14-dimensional feature vector
+   └── Pass to Trust Score Engine
+
+7. [NOT YET WIRED] Trust Engine would:
+   ├── Run VAE scoring (Pillar 1: 35% weight)
+   ├── Run IF + LSTM + GNN ensemble (Pillar 2: 25% weight)
+   ├── Run CUSUM drift detection (Pillar 3: 20% weight)
+   ├── Evaluate policy conformance (Pillar 4: 15% weight)
+   ├── Compare DNA fingerprint to peers (Pillar 5: 5% weight)
+   ├── Compute final Trust Score (0-100)
+   ├── Persist to Redis (live cache)
+   ├── Persist to InfluxDB (history)
+   └── Broadcast updated score via WebSocket
+
+8. Frontend Dashboard receives WebSocket events:
+   ├── 'new_alert' → Adds to alert queue, flashes node red on D3 map
+   ├── 'telemetry_ping' → Animates edge pulse on topology map
+   └── 'trust_update' → Updates timeline chart and KPI cards
+```
+
+> [!WARNING]
+> **Current Gap**: Steps 6–7 are the biggest integration gap. The Kafka consumer receives flows and broadcasts alerts, but it **never calls feature extraction**, **never triggers ML scoring**, and **never persists to InfluxDB/Redis**. All dashboard data is currently mock/simulated on the frontend side.
+
+---
+
+> **Next**: Part 2 covers the **ML models in depth** — VAE architecture & math, Isolation Forest algorithm, LSTM temporal detection, GNN GraphSAGE, CUSUM drift detection, the 5-Pillar Trust Score formula, and the DNA Fingerprinting system. Prompt me for it.

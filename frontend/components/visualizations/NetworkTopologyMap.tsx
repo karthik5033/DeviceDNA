@@ -2,105 +2,96 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { getTrustColor } from '@/lib/utils';
-import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:8000');
-
-// Mock data generation for initial visualization
+// Mock data generation
 const generateMockData = () => {
   const nodes = [];
   const links = [];
-  const classes = ['camera', 'sensor', 'thermostat', 'access_control', 'medical', 'industrial'];
+  const prefixes = ['CAM', 'MED', 'IND', 'SENS'];
   
-  // Create 50 nodes
+  const anomalousIds = ['SIM-0001', 'MED-0007', 'IND-0003'];
+  
   for (let i = 1; i <= 50; i++) {
+    let id;
+    let isAnomalous = false;
+    let trustScore;
+    
+    if (i <= 3) {
+       id = anomalousIds[i - 1];
+       isAnomalous = true;
+       trustScore = 20 + Math.random() * 15; 
+    } else if (i === 4) {
+       id = 'CAM-0001'; 
+       trustScore = 85;
+    } else {
+       const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+       id = `${prefix}-${i.toString().padStart(4, '0')}`;
+       trustScore = 75 + Math.random() * 20;
+    }
+
     nodes.push({
-      id: `SIM-${i.toString().padStart(4, '0')}`,
-      group: classes[i % classes.length],
-      // Random trust score heavily biased towards normal
-      trust_score: Math.random() > 0.8 ? Math.random() * 60 : 80 + Math.random() * 20,
+      id,
+      trust_score: trustScore,
+      isAnomalous,
+      isIsolated: false
     });
   }
 
-  // Create connections (mesh)
   for (let i = 0; i < nodes.length; i++) {
-    // Gateway connection
-    if (i > 3) {
-      links.push({
-        source: nodes[i].id,
-        target: nodes[i % 4].id,
-        value: Math.random() * 10
-      });
-    }
-    // Random peer connections
-    if (Math.random() > 0.7) {
-      links.push({
-        source: nodes[i].id,
-        target: nodes[Math.floor(Math.random() * nodes.length)].id,
-        value: Math.random() * 5
-      });
+    const numConnections = Math.floor(Math.random() * 3) + 1;
+    for (let j = 0; j < numConnections; j++) {
+      const targetIdx = Math.floor(Math.random() * nodes.length);
+      if (targetIdx !== i) {
+         links.push({
+           source: nodes[i].id,
+           target: nodes[targetIdx].id,
+           value: 1
+         });
+      }
     }
   }
 
   return { nodes, links };
 };
 
-export default function NetworkTopologyMap() {
+export default function NetworkTopologyMap({ onIsolate }: { onIsolate?: (id: string) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const [data, setData] = useState<{ nodes: any[], links: any[] } | null>(null);
-  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+  const [data, setData] = useState(generateMockData());
+  const [hoveredNode, setHoveredNode] = useState<any>(null);
 
   useEffect(() => {
-    // Load mock data on mount
-    setData(generateMockData());
-
-    // Listen for live anomalies to infect nodes
-    socket.on('new_alert', (alert) => {
-       setData(prev => {
-          if (!prev) return prev;
-          const newNodes = prev.nodes.map(n => {
-             // If this node is the one that got flagged, crash its trust score
-             if (n.id === alert.device) {
-                return { ...n, trust_score: alert.score || 25 }; 
-             }
-             return n;
-          });
-          return { nodes: newNodes, links: prev.links };
-       });
-    });
-
-    return () => {
-      socket.off('new_alert');
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!data || !containerRef.current || !svgRef.current) return;
+    if (!containerRef.current || !svgRef.current) return;
 
     const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight || 400;
+    const height = containerRef.current.clientHeight;
 
     const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove(); // Clear previous render
+    svg.selectAll('*').remove();
 
-    // Map trust score to colors
-    const colorScale = (score: number) => {
-      if (score >= 80) return '#22c55e'; // green-500
-      if (score >= 60) return '#eab308'; // yellow-500
-      if (score >= 40) return '#f97316'; // orange-500
-      return '#ef4444'; // red-500
+    const colorScale = (score: number, isIsolated: boolean) => {
+      if (isIsolated) return '#475569'; // Gray out
+      if (score >= 80) return '#22c55e'; // Green
+      if (score >= 60) return '#eab308'; // Yellow
+      if (score >= 40) return '#f97316'; // Orange
+      return '#ef4444'; // Red
     };
 
-    // Initialize simulation
-    const simulation = d3.forceSimulation(data.nodes)
-      .force('link', d3.forceLink(data.links).id((d: any) => d.id).distance(100))
-      .force('charge', d3.forceManyBody().strength(-200))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collide', d3.forceCollide().radius(25));
+    // Filter out links connected to isolated nodes
+    const activeLinks = data.links.filter((l: any) => {
+       const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+       const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+       const sourceNode = data.nodes.find(n => n.id === sourceId);
+       const targetNode = data.nodes.find(n => n.id === targetId);
+       return !sourceNode?.isIsolated && !targetNode?.isIsolated;
+    });
 
-    // Create drop shadow filter for glowing compromised nodes
+    const simulation = d3.forceSimulation(data.nodes as any)
+      .force('link', d3.forceLink(activeLinks).id((d: any) => d.id).distance(70))
+      .force('charge', d3.forceManyBody().strength(-120))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collide', d3.forceCollide().radius(20));
+
     const defs = svg.append("defs");
     const filter = defs.append("filter")
         .attr("id", "glow")
@@ -110,81 +101,96 @@ export default function NetworkTopologyMap() {
         .attr("height", "200%");
     
     filter.append("feGaussianBlur")
-        .attr("stdDeviation", "4")
+        .attr("stdDeviation", "8")
         .attr("result", "coloredBlur");
         
     const feMerge = filter.append("feMerge");
     feMerge.append("feMergeNode").attr("in", "coloredBlur");
     feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
-    // Draw links
     const link = svg.append('g')
-      .attr('stroke', '#1e293b')
-      .attr('stroke-opacity', 0.6)
+      .attr('stroke', 'rgba(255,255,255,0.2)')
+      .attr('stroke-width', 1)
       .selectAll('line')
-      .data(data.links)
-      .join('line')
-      .attr('stroke-width', (d: any) => Math.sqrt(d.value || 1));
+      .data(activeLinks)
+      .join('line');
 
-    // Draw nodes
+    const pulseLayer = svg.append('g');
+    
+    function drag(simulation: any) {
+      function dragstarted(event: any) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        event.subject.fx = event.subject.x;
+        event.subject.fy = event.subject.y;
+      }
+      function dragged(event: any) {
+        event.subject.fx = event.x;
+        event.subject.fy = event.y;
+      }
+      function dragended(event: any) {
+        if (!event.active) simulation.alphaTarget(0);
+        event.subject.fx = null;
+        event.subject.fy = null;
+      }
+      return d3.drag()
+        .on('start', dragstarted)
+        .on('drag', dragged)
+        .on('end', dragended);
+    }
+
     const node = svg.append('g')
-      .attr('stroke', '#070b14')
-      .attr('stroke-width', 2)
       .selectAll('circle')
       .data(data.nodes)
       .join('circle')
+      .attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 12 : 6)
+      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated))
+      .attr('stroke', (d: any) => d.isAnomalous && !d.isIsolated ? '#ffffff' : 'none')
+      .attr('stroke-width', (d: any) => d.isAnomalous && !d.isIsolated ? 2 : 0)
       .style('cursor', 'pointer')
+      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "url(#glow)" : "none")
+      .on('mouseover', (event, d: any) => {
+         if (d.isAnomalous && !d.isIsolated) setHoveredNode(d);
+      })
+      .on('mouseout', () => setHoveredNode(null))
       .call(drag(simulation) as any);
 
-    // Apply dynamic attributes based on state updates (this will smoothly transition when state changes)
-    node.transition()
-      .duration(1000)
-      .attr('r', (d: any) => d.trust_score < 40 ? 16 : d.trust_score < 60 ? 12 : 8) 
-      .attr('fill', (d: any) => colorScale(d.trust_score))
-      .style("filter", (d: any) => d.trust_score < 40 ? "url(#glow)" : "none");
-
-    // Add labels
     const label = svg.append('g')
       .selectAll('text')
       .data(data.nodes)
       .join('text')
-      .attr('dy', 25)
+      .attr('dy', 22)
       .attr('text-anchor', 'middle')
       .text((d: any) => d.id)
-      .attr('font-size', '10px')
-      .attr('fill', '#94a3b8')
+      .attr('font-size', (d: any) => d.isAnomalous && !d.isIsolated ? '13px' : '9px')
+      .attr('font-weight', (d: any) => d.isAnomalous && !d.isIsolated ? 'bold' : 'normal')
+      .attr('fill', (d: any) => {
+         if (d.isIsolated) return '#475569';
+         return d.isAnomalous ? '#ef4444' : 'rgba(255,255,255,0.5)';
+      })
       .attr('font-family', 'monospace')
-      .style('pointer-events', 'none');
+      .style('pointer-events', 'none')
+      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
 
-    // Add interactions
-    node.on('click', (event, d: any) => {
-      setSelectedNode(d);
-      
-      // Highlight connected lines
-      link.attr('stroke', (l: any) => l.source.id === d.id || l.target.id === d.id ? '#3edcff' : '#1e293b')
-          .attr('stroke-opacity', (l: any) => l.source.id === d.id || l.target.id === d.id ? 1 : 0.2);
-          
-      node.attr('opacity', (n: any) => {
-        if (n.id === d.id) return 1;
-        const isConnected = data.links.some((l: any) => 
-          (l.source.id === d.id && l.target.id === n.id) || 
-          (l.target.id === d.id && l.source.id === n.id)
-        );
-        return isConnected ? 1 : 0.3;
-      });
-    });
+    const containedBadge = svg.append('g')
+      .selectAll('text')
+      .data(data.nodes.filter(n => n.isIsolated))
+      .join('text')
+      .attr('dy', -15)
+      .attr('text-anchor', 'middle')
+      .text('CONTAINED')
+      .attr('font-size', '10px')
+      .attr('font-weight', 'bold')
+      .attr('fill', '#22c55e')
+      .attr('font-family', 'monospace')
+      .style('pointer-events', 'none')
+      .style("filter", "drop-shadow(0px 0px 4px rgba(34,197,94,0.8))");
 
-    // Background click resets
-    svg.on('click', (event) => {
-      if (event.target === svg.node()) {
-        setSelectedNode(null);
-        link.attr('stroke', '#1e293b').attr('stroke-opacity', 0.6);
-        node.attr('opacity', 1);
-      }
-    });
-
-    // Simulation tick updates
     simulation.on('tick', () => {
+      data.nodes.forEach((d: any) => {
+        d.x = Math.max(40, Math.min(width - 40, d.x));
+        d.y = Math.max(40, Math.min(height - 40, d.y));
+      });
+
       link
         .attr('x1', (d: any) => d.source.x)
         .attr('y1', (d: any) => d.source.y)
@@ -192,68 +198,101 @@ export default function NetworkTopologyMap() {
         .attr('y2', (d: any) => d.target.y);
 
       node
-        .attr('cx', (d: any) => Math.max(15, Math.min(width - 15, d.x)))
-        .attr('cy', (d: any) => Math.max(15, Math.min(height - 15, d.y)));
-
+        .attr('cx', (d: any) => d.x)
+        .attr('cy', (d: any) => d.y);
+        
       label
-        .attr('x', (d: any) => Math.max(15, Math.min(width - 15, d.x)))
-        .attr('y', (d: any) => Math.max(15, Math.min(height - 15, d.y)));
+        .attr('x', (d: any) => d.x)
+        .attr('y', (d: any) => d.y);
+
+      containedBadge
+        .attr('x', (d: any) => d.x)
+        .attr('y', (d: any) => d.y);
+
+      pulseLayer.selectAll('circle.pulse').remove();
+      data.nodes.filter(n => n.isAnomalous && !n.isIsolated).forEach((d: any) => {
+         pulseLayer.append('circle')
+           .attr('class', 'pulse')
+           .attr('cx', d.x)
+           .attr('cy', d.y)
+           .attr('r', 25)
+           .attr('fill', 'none')
+           .attr('stroke', '#ef4444')
+           .attr('stroke-width', 2)
+           .attr('opacity', 0.8)
+           .style("filter", "url(#glow)")
+           .append("animate")
+           .attr("attributeName", "r")
+           .attr("values", "12; 40")
+           .attr("dur", "1.5s")
+           .attr("repeatCount", "indefinite");
+           
+         pulseLayer.append('circle')
+           .attr('class', 'pulse')
+           .attr('cx', d.x)
+           .attr('cy', d.y)
+           .attr('r', 40)
+           .attr('fill', 'none')
+           .attr('stroke', '#ef4444')
+           .attr('stroke-width', 1)
+           .attr('opacity', 0.5)
+           .append("animate")
+           .attr("attributeName", "opacity")
+           .attr("values", "0.8; 0")
+           .attr("dur", "1.5s")
+           .attr("repeatCount", "indefinite");
+      });
     });
 
-    // Drag behavior definition
-    function drag(simulation: any) {
-      function dragstarted(event: any) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
-        event.subject.fx = event.subject.x;
-        event.subject.fy = event.subject.y;
-      }
-      
-      function dragged(event: any) {
-        event.subject.fx = event.x;
-        event.subject.fy = event.y;
-      }
-      
-      function dragended(event: any) {
-        if (!event.active) simulation.alphaTarget(0);
-        event.subject.fx = null;
-        event.subject.fy = null;
-      }
-      
-      return d3.drag()
-        .on('start', dragstarted)
-        .on('drag', dragged)
-        .on('end', dragended);
-    }
-
-    // Cleanup
     return () => {
       simulation.stop();
     };
   }, [data]);
 
+  const handleIsolate = () => {
+     if (!hoveredNode) return;
+     const nodeId = hoveredNode.id;
+     
+     // Trigger dashboard event
+     if (onIsolate) onIsolate(nodeId);
+
+     setData(prev => {
+        const newNodes = prev.nodes.map(n => {
+           if (n.id === nodeId) {
+              return { ...n, isIsolated: true };
+           }
+           // Neighbors heal
+           if (n.trust_score < 80) {
+              return { ...n, trust_score: Math.min(95, n.trust_score + 25) };
+           }
+           return n;
+        });
+        return { nodes: newNodes, links: prev.links };
+     });
+     setHoveredNode(null);
+  };
+
   return (
-    <div className="flex-1 w-full h-full relative" ref={containerRef}>
-      <svg ref={svgRef} className="w-full h-full" style={{ minHeight: '400px' }} />
+    <div className="absolute inset-0 w-full h-full" ref={containerRef}>
+      <svg ref={svgRef} className="w-full h-full" />
       
-      {/* Node Info Overlay */}
-      {selectedNode && (
-        <div className="absolute top-4 left-4 bg-[#070b14]/90 backdrop-blur border border-[#1e293b] rounded-lg p-4 shadow-xl z-10 w-64 pointer-events-auto">
-          <div className="flex justify-between items-start mb-2">
-            <h3 className="font-mono font-bold text-[#3edcff]">{selectedNode.id}</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full bg-opacity-20 border font-medium ${
-              selectedNode.trust_score >= 80 ? 'text-green-500 border-green-500/50 bg-green-500' :
-              selectedNode.trust_score >= 60 ? 'text-yellow-500 border-yellow-500/50 bg-yellow-500' :
-              selectedNode.trust_score >= 40 ? 'text-orange-500 border-orange-500/50 bg-orange-500' :
-              'text-red-500 border-red-500/50 bg-red-500'
-            }`}>
-              {selectedNode.trust_score.toFixed(1)}
-            </span>
-          </div>
-          <div className="space-y-1 text-sm text-gray-400">
-            <p><span className="text-gray-500">Class:</span> <span className="capitalize">{selectedNode.group}</span></p>
-            <p><span className="text-gray-500">Status:</span> {selectedNode.trust_score < 40 ? 'Critical Anomaly' : 'Online'}</p>
-          </div>
-        </div>
+      {/* Isolate Button Overlay on hover */}
+      {hoveredNode && !hoveredNode.isIsolated && (
+         <div 
+           className="absolute z-50 pointer-events-auto transition-all"
+           style={{ 
+             left: hoveredNode.x + 20, 
+             top: hoveredNode.y - 20 
+           }}
+         >
+            <button 
+               onClick={handleIsolate}
+               className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold font-mono px-3 py-1.5 rounded shadow-[0_0_15px_#ef4444] tracking-widest border border-red-400 active:scale-95 transition-all"
+               onMouseOver={() => setHoveredNode(hoveredNode)} // keep hover state
+            >
+               ISOLATE
+            </button>
+         </div>
       )}
     </div>
   );

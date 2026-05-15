@@ -27,20 +27,14 @@ class TrustScoreEngine:
         Pull all ML scoring modules and process 5-Pillar evaluation for a specific device.
         Requires the immediate 5-min feature snapshot, and the long-term static means/stds.
         """
-        try: # 1. VAE Digital Twin (0 -> 1.0)
-            vae_dev = twin_scorer.score_deviation(device_id, current_features)
-        except Exception:
-            vae_dev = 0.0
-            
-        try: # 2. Isolation Forest (0 -> 1.0)
-            if_anomaly = if_scorer.score_anomaly(device_class, current_features)
-        except Exception:
-            if_anomaly = 0.0
-            
-        try: # 3. CUSUM Drift Tracking (0 -> 1.0)
-            drift_score = cusum_engine.detect_drift(device_id, self._dict_features(current_features), baseline_stats)
-        except Exception:
-            drift_score = 0.0
+        # 1. VAE Digital Twin (0 -> 1.0)
+        vae_dev = twin_scorer.score_deviation(device_id, current_features)
+        
+        # 2. Isolation Forest (0 -> 1.0)
+        if_anomaly = if_scorer.score_anomaly(device_class, current_features)
+        
+        # 3. CUSUM Drift Tracking (0 -> 1.0)
+        drift_score = cusum_engine.detect_drift(device_id, self._dict_features(current_features), baseline_stats)
             
         # Combine the structural algorithms into the ensemble pillar
         # Assuming LSTM and GNN (GraphSAGE) evaluate as 0 currently pending GPU implementations

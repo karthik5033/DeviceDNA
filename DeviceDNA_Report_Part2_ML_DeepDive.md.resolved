@@ -1,0 +1,521 @@
+# DeviceDNA — Part 2: ML Models Deep Dive
+
+## The Mathematics & Science Behind Every AI Component
+
+---
+
+## 1. The 14-Dimensional Feature Vector
+
+Before any ML model runs, raw network flows must be transformed into a structured numerical representation. The [Feature Extraction Engine](file:///d:/coding_files/Projects/DeviceDNA/backend/app/services/feature_extraction.py) converts a 5-minute window of raw flows into a **14-dimensional feature vector** defined in [features.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/schemas/features.py):
+
+| Dim | Feature | Type | What It Captures |
+|-----|---------|------|------------------|
+| 0 | `total_flows` | int | Activity volume — how many connections in 5 min |
+| 1 | `total_bytes` | int | Data volume — total bytes transferred |
+| 2 | `total_packets` | int | Packet count — network load indicator |
+| 3 | `avg_packet_size` | float | `total_bytes / total_packets` — large = bulk transfer |
+| 4 | `avg_duration_ms` | float | Average connection duration — long = persistent session |
+| 5 | `tcp_ratio` | float | Fraction of TCP flows (0.0–1.0) |
+| 6 | `udp_ratio` | float | Fraction of UDP flows |
+| 7 | `http_ratio` | float | Fraction of HTTP (port 80) flows |
+| 8 | `https_ratio` | float | Fraction of HTTPS (port 443) flows |
+| 9 | `dns_ratio` | float | Fraction of DNS (port 53) flows |
+| 10 | `other_protocol_ratio` | float | Everything else (MQTT, RTSP, Modbus, etc.) |
+| 11 | `unique_dst_ips` | int | Endpoint diversity — how many different IPs contacted |
+| 12 | `unique_dst_ports` | int | Port diversity — how many different ports used |
+| 13 | `external_traffic_ratio` | float | Fraction of flows going outside the local network |
+
+> **Why 14 dimensions?** Each dimension captures a different behavioral axis. A botnet C2 attack changes dims 11, 12, 13 (new IPs, new ports, external traffic). A slow exfiltration changes dims 1, 3 (bytes, packet size). Protocol-level attacks change dims 5–10. This coverage ensures no attack vector goes unmeasured.
+
+The protocol ratios always sum to 1.0, creating a **probability distribution** over protocol usage — the device's "protocol fingerprint."
+
+---
+
+## 2. Variational Autoencoder (VAE) — The Digital Twin
+
+**File**: [model.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/vae/model.py) | [scoring.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/vae/scoring.py) | [train_vae.py](file:///d:/coding_files/Projects/DeviceDNA/backend/training/train_vae.py)
+
+### 2.1 What Is It?
+
+A VAE is a neural network that learns to **compress** data into a small latent space and then **reconstruct** it. If the reconstruction is accurate, the input was "normal" (the model has seen data like this before). If the reconstruction is poor, the input is anomalous.
+
+Each of the 50 devices gets its own dedicated VAE — its **Digital Twin**. The Twin learns only that device's normal behavior during a 7-day baseline period.
+
+### 2.2 Architecture
+
+```
+Input (14D) → Encoder → Latent Space (16D) → Decoder → Output (14D)
+```
+
+Detailed layer structure implemented in `DeviceVAE`:
+
+```
+ENCODER:
+  fc1: Linear(14 → 32) + ReLU activation
+  fc2_mu: Linear(32 → 16)        ← produces mean vector μ
+  fc2_logvar: Linear(32 → 16)    ← produces log-variance vector log(σ²)
+
+LATENT SPACE:
+  z = μ + σ × ε    where ε ~ N(0, I)     ← "reparameterization trick"
+
+DECODER:
+  fc3: Linear(16 → 32) + ReLU activation
+  fc4: Linear(32 → 14)           ← reconstructed feature vector
+```
+
+### 2.3 The Math — Loss Function
+
+The VAE loss combines two terms:
+
+**1. Reconstruction Loss (MSE):**
+```
+MSE = Σᵢ (xᵢ - x̂ᵢ)²
+```
+Measures how well the decoder reconstructed the original 14D input. Low MSE = the model "understands" this behavior pattern.
+
+**2. KL Divergence (Regularization):**
+```
+KLD = -½ × Σⱼ (1 + log(σⱼ²) - μⱼ² - σⱼ²)
+```
+Forces the latent space to stay close to a standard normal distribution N(0,1). This prevents the model from just memorizing inputs — it must learn a smooth, generalizable representation.
+
+**Total Loss:**
+```
+L = MSE + KLD
+```
+
+### 2.4 The Reparameterization Trick
+
+VAEs need to sample from the latent distribution during training, but sampling is non-differentiable (you can't backpropagate through a random operation). The trick:
+
+Instead of sampling `z ~ N(μ, σ²)` directly, we compute:
+```
+z = μ + σ × ε,    where ε ~ N(0, 1)
+```
+
+Now `ε` is a fixed random input, and `μ` and `σ` are deterministic outputs of the encoder — fully differentiable. Gradients flow through `μ` and `σ` normally during backpropagation.
+
+### 2.5 Training Process
+
+From [train_vae.py](file:///d:/coding_files/Projects/DeviceDNA/backend/training/train_vae.py):
+
+1. For each of 50 devices, generate **1,000 synthetic 5-minute windows** (25 flows each)
+2. Extract the 14D feature vector for each window
+3. Create a PyTorch `DataLoader` with batch size 64
+4. Train for 20 epochs using **Adam optimizer** (lr = 0.001)
+5. Save the trained model weights as `models_trained/vae_{device_id}.pt`
+
+### 2.6 Scoring (Anomaly Detection)
+
+From [scoring.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/vae/scoring.py):
+
+```python
+# Forward pass: reconstruct the input
+recon_x, mu, logvar = model(tensor_x)
+
+# Compute reconstruction error
+mse = F.mse_loss(recon_x, tensor_x, reduction='sum')
+
+# Map MSE to 0–1 deviation score
+deviation_score = max(0.0, min(1.0, 1.0 - (mse / 10.0)))
+```
+
+- **Score near 1.0** → input reconstructed well → behavior matches Twin → normal
+- **Score near 0.0** → high reconstruction error → behavior deviates from Twin → anomalous
+
+The threshold of 10.0 is an empirical heuristic: normal MSE ≈ 0.5, anomalous MSE > 5.0.
+
+### 2.7 Why VAE and Not a Regular Autoencoder?
+
+A regular autoencoder just compresses and reconstructs. A VAE learns a **probabilistic latent space** — it learns the *distribution* of normal behavior, not just specific examples. This means:
+- It generalizes better to slight natural variations in device behavior
+- The latent vector `μ` serves as the device's **DNA fingerprint** (used in the DNA Fingerprinting service)
+- It provides uncertainty quantification through the variance `σ²`
+
+---
+
+## 3. Isolation Forest — Statistical Outlier Detection
+
+**File**: [model.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/isolation_forest/model.py)
+
+### 3.1 What Is It?
+
+Isolation Forest is a **tree-based anomaly detection** algorithm from scikit-learn. Unlike VAE (which learns what's normal), Isolation Forest directly identifies **outliers** — data points that are "easy to isolate" from the rest.
+
+### 3.2 The Core Intuition
+
+Imagine plotting all normal sensor data points in 14D space. They form a dense cluster. An anomalous point (e.g., a sensor suddenly using SSH on port 22) sits far away from this cluster.
+
+An Isolation Forest builds many random binary trees. At each split, it picks a random feature and a random split value. **Anomalous points get isolated in fewer splits** because they're far from the cluster. Normal points require many splits to isolate because they're surrounded by similar points.
+
+### 3.3 The Algorithm
+
+```
+1. Build T random trees (default: 100)
+2. For each tree:
+   a. Sample a random subset of training data
+   b. Recursively split:
+      - Pick a random feature (of 14)
+      - Pick a random split value between feature min and max
+      - Partition data into left/right children
+      - Stop when node has 1 sample or max depth reached
+3. For a new data point, compute its average path length across all T trees
+4. Anomaly score = 2^(-average_path_length / c(n))
+   where c(n) is the expected path length for a dataset of size n
+```
+
+**Short path** → easy to isolate → **anomalous** (score near 1.0)
+**Long path** → hard to isolate → **normal** (score near 0.5)
+
+### 3.4 DeviceDNA's Implementation
+
+Unlike VAE (per-device), Isolation Forests are trained **per device class** (6 models total: camera, sensor, thermostat, access_control, medical, industrial). This is because:
+- Devices of the same class share baseline behavioral distributions
+- Per-class training provides a larger training set (more robust)
+- New devices of a known class can be scored immediately without a 7-day baseline
+
+**Score normalization** in [model.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/isolation_forest/model.py):
+```python
+# scikit-learn outputs: ~0.0 (normal) to ~-0.2 (anomaly)
+raw_score = model.decision_function(features_2d)[0]
+
+# Invert and normalize to 0–1
+normalized_score = max(0.0, min(1.0, 0.5 - (raw_score * 2.0)))
+
+# If model explicitly classified it as outlier (-1), floor at 0.8
+if model.predict(features_2d)[0] == -1:
+    normalized_score = max(0.8, normalized_score)
+```
+
+### 3.5 What It Catches
+
+Isolation Forest excels at **hard, structural anomalies** — sudden, dramatic behavioral changes:
+- Camera using SSH (port 22) for the first time ever
+- Sensor contacting 15 unique external IPs (normally contacts 2)
+- Industrial controller switching from Modbus to HTTPS protocol
+
+It does **not** catch slow drift (that's CUSUM's job) or temporal patterns (that's LSTM's job).
+
+---
+
+## 4. LSTM — Temporal Sequence Anomaly Detection
+
+**File**: [model.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/lstm/model.py)
+
+### 4.1 What Is It?
+
+LSTM (Long Short-Term Memory) is a recurrent neural network designed to learn **sequential, time-dependent patterns**. While VAE and Isolation Forest analyze a single 5-minute snapshot, LSTM looks at the **sequence** of the last 12 snapshots (1 hour) to predict what the next snapshot should look like.
+
+### 4.2 Why LSTM Matters
+
+Some attacks are invisible in any single snapshot but obvious over time:
+- A device's trust score is 85 right now — looks fine
+- But 6 hours ago it was 95, 3 hours ago it was 90, now it's 85
+- LSTM recognizes this **downward trajectory** and predicts it will hit 40 (suspicious threshold) within 24 hours
+
+### 4.3 Architecture
+
+```python
+LSTM(
+    input_size=14,       # 14D feature vector at each timestep
+    hidden_size=64,      # Internal memory capacity
+    num_layers=2,        # Stacked LSTM layers for deeper patterns
+    batch_first=True,    # Input shape: (batch, sequence=12, features=14)
+    dropout=0.2          # Regularization between layers
+)
+→ Linear(64 → 14)       # Predict next 14D feature vector
+```
+
+**Input**: Last 12 feature vectors (1 hour of 5-minute windows) → shape `(batch, 12, 14)`
+**Output**: Predicted next feature vector → shape `(batch, 14)`
+
+### 4.4 The Math — How LSTM Memory Works
+
+At each timestep `t`, the LSTM computes 4 gates:
+
+```
+Forget gate:  fₜ = σ(Wf · [hₜ₋₁, xₜ] + bf)     ← what to forget from memory
+Input gate:   iₜ = σ(Wi · [hₜ₋₁, xₜ] + bi)     ← what new info to store
+Cell update:  C̃ₜ = tanh(Wc · [hₜ₋₁, xₜ] + bc)  ← candidate new memory
+Output gate:  oₜ = σ(Wo · [hₜ₋₁, xₜ] + bo)     ← what to output
+
+Cell state:   Cₜ = fₜ × Cₜ₋₁ + iₜ × C̃ₜ         ← updated memory
+Hidden state: hₜ = oₜ × tanh(Cₜ)                 ← output at this step
+```
+
+Where `σ` = sigmoid (squashes to 0–1), `tanh` squashes to (-1, 1), and `×` is element-wise multiplication.
+
+**Why this matters for DeviceDNA**: The forget gate lets the LSTM "remember" the behavioral trend from 12 timesteps ago (1 hour), while the input gate lets it incorporate the latest data. This is what makes it capable of detecting **slow drift trajectories** that accumulate over hours.
+
+### 4.5 Anomaly Scoring
+
+```python
+def lstm_anomaly_score(predicted_features, actual_features):
+    mse = F.mse_loss(predicted_features, actual_features, reduction='none')
+    return torch.mean(mse).item()
+```
+
+If the LSTM predicted `[20, 500, 10, 128, ...]` but the actual was `[20, 8000, 50, 350, ...]`, the MSE is high → the device is behaving differently than its temporal pattern predicts → anomalous.
+
+> [!NOTE]
+> **Current Status**: LSTM architecture is code-complete but **not integrated** into the trust engine. The trust engine hardcodes LSTM score as `0.0`. No training script exists yet.
+
+---
+
+## 5. Graph Neural Network (GNN) — Network Topology Intelligence
+
+**File**: [model.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/ml/gnn/model.py)
+
+### 5.1 What Is It?
+
+GNN (specifically **GraphSAGE**) analyzes the **communication topology** of the entire IoT network. While all other models look at individual devices, GNN looks at **relationships between devices** — who talks to whom, and whether those relationships are normal.
+
+### 5.2 The Graph Structure
+
+```
+Nodes = IoT devices (50 nodes, each with 14D feature vector)
+Edges = Communication flows between devices (directed, weighted by byte volume)
+```
+
+Example normal graph:
+```
+Camera-1 ──RTSP──→ Media Server
+Camera-1 ──DNS───→ DNS Server
+Sensor-7 ──MQTT──→ Gateway
+```
+
+Example attack graph (lateral movement):
+```
+Medical-1 ──SSH──→ Medical-2    ← NEW EDGE! Never existed before!
+Medical-2 ──SSH──→ Medical-3    ← NEW EDGE!
+Medical-3 ──HTTPS→ External-IP  ← Exfiltration!
+```
+
+### 5.3 GraphSAGE Architecture
+
+```python
+conv1 = SAGEConv(14 → 32, normalize=True)   # First message-passing layer
+                  ↓ ReLU + Dropout(0.2)
+conv2 = SAGEConv(32 → 32, normalize=True)   # Second message-passing layer
+                  ↓ ReLU
+lin   = Linear(32 → 2)                       # Binary classification (Normal/Anomalous)
+```
+
+### 5.4 How GraphSAGE Works (Message Passing)
+
+GraphSAGE learns node representations by **aggregating information from neighbors**:
+
+```
+1. For each node v, gather feature vectors from all neighbors N(v)
+2. Aggregate: hᴺ⁽ᵛ⁾ = MEAN({hᵘ, ∀u ∈ N(v)})
+3. Combine: hᵥ' = σ(W · CONCAT(hᵥ, hᴺ⁽ᵛ⁾))
+4. Normalize: hᵥ' = hᵥ' / ||hᵥ'||₂
+```
+
+After 2 layers of message passing, each node's representation encodes information from its **2-hop neighborhood** — it knows not just who it talks to, but who *they* talk to. This is why it can detect:
+- A camera suddenly "knowing about" a database server it never communicated with
+- A cluster of sensors forming a new communication ring (botnet formation)
+
+### 5.5 Anomaly Scoring
+
+```python
+def gnn_anomaly_score(outputs):
+    probs = F.softmax(outputs, dim=1)
+    return probs[:, 1].mean().item()  # Probability of class 1 (Anomalous)
+```
+
+> [!NOTE]
+> **Current Status**: Architecture is code-complete but requires `torch-geometric` (PyG) which is **not installed**. The model has a `try/except` fallback. No training script exists.
+
+---
+
+## 6. CUSUM Drift Engine — Detecting Slow, Stealthy Attacks
+
+**File**: [drift_engine.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/services/drift_engine.py)
+
+### 6.1 What Is CUSUM?
+
+CUSUM (Cumulative Sum Control Chart) is a **statistical process control** algorithm designed to detect **small, sustained shifts** in a time series mean. It was invented for manufacturing quality control and is perfectly suited for detecting stealthy IoT attacks.
+
+### 6.2 Why Other Models Miss Slow Drift
+
+Consider a sensor that normally uploads 500 bytes/flow. An attacker increases upload by 8% per day:
+
+| Day | Bytes/Flow | VAE Says | IF Says | CUSUM Says |
+|-----|-----------|----------|---------|------------|
+| 1 | 500 | ✅ Normal | ✅ Normal | Accumulating... |
+| 5 | 540 | ✅ Normal | ✅ Normal | Accumulating... |
+| 9 | 583 | ✅ Normal | ✅ Normal | ⚠️ **DRIFT DETECTED** |
+| 14 | 647 | Maybe | Maybe | 🚨 **ALARM** |
+
+VAE and IF analyze each snapshot independently — 540 bytes is still within the normal distribution (mean=500, std=200). But CUSUM **accumulates** the deviations over time, and the cumulative sum eventually crosses the alarm threshold.
+
+### 6.3 The Math
+
+DeviceDNA's CUSUM tracks 3 critical features: `total_bytes`, `avg_packet_size`, `external_traffic_ratio`.
+
+For each feature at each evaluation cycle:
+
+**Step 1: Z-score normalization**
+```
+zₜ = (xₜ - μ) / σ
+```
+Where `μ` = baseline mean, `σ` = baseline standard deviation.
+
+**Step 2: Accumulate positive and negative deviations**
+```
+S⁺ₜ = max(0, S⁺ₜ₋₁ + zₜ - K)     ← detects upward drift
+S⁻ₜ = max(0, S⁻ₜ₋₁ - zₜ - K)     ← detects downward drift
+```
+Where `K = 0.5` (slack parameter — tolerates small natural variation).
+
+**Step 3: Check against threshold**
+```
+If max(S⁺ₜ, S⁻ₜ) > H → DRIFT ALARM
+```
+Where `H = 3.0` (alarm threshold).
+
+**Step 4: Compute drift score**
+```
+drift_score = max(S⁺ₜ, S⁻ₜ) / H     (clamped to 0.0–1.0)
+```
+
+### 6.4 Parameter Meanings
+
+| Parameter | Value | Meaning |
+|-----------|-------|---------|
+| **K (slack)** | 0.5 | Ignores deviations within ±0.5 standard deviations. Prevents false alarms from normal noise |
+| **H (threshold)** | 3.0 | Cumulative z-score sum must exceed 3.0 to trigger. Requires ~6 consecutive above-average readings |
+| **Clip limit** | H × 1.5 = 4.5 | Prevents cumulative sums from exploding to infinity if drift continues |
+
+### 6.5 Stateful Tracking
+
+CUSUM is **stateful** — it maintains running sums `S⁺` and `S⁻` for each device × each feature across evaluation cycles. This state is stored in-memory in `self.state_cache`:
+
+```python
+self.state_cache = {
+    'SIM-0001': {
+        'total_bytes': {'s_pos': 0.0, 's_neg': 0.0},
+        'avg_packet_size': {'s_pos': 0.0, 's_neg': 0.0},
+        'external_traffic_ratio': {'s_pos': 0.0, 's_neg': 0.0}
+    },
+    ...
+}
+```
+
+---
+
+## 7. The 5-Pillar Trust Score Engine
+
+**File**: [trust_engine.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/services/trust_engine.py)
+
+### 7.1 The Formula
+
+All ML model outputs are combined into a single **Trust Score (0–100)** using a weighted penalty system:
+
+```
+penalty = (VAE_score × 0.35) + (ensemble_score × 0.25) + (drift_score × 0.20)
+        + (policy_penalty × 0.15) + (peer_penalty × 0.05)
+
+Trust Score = 100 - (penalty × 100)
+```
+
+Where `ensemble_score = (IF × 0.6) + (LSTM × 0.2) + (GNN × 0.2)`
+
+### 7.2 The 5 Pillars Explained
+
+| Pillar | Weight | Source | What It Detects |
+|--------|--------|--------|-----------------|
+| **Digital Twin** | 35% | VAE reconstruction error | Any deviation from learned individual behavior |
+| **Anomaly Ensemble** | 25% | IF (60%) + LSTM (20%) + GNN (20%) | Structural outliers + temporal drift + topology anomalies |
+| **Drift Intelligence** | 20% | CUSUM | Slow, sustained behavioral changes over days/weeks |
+| **Policy Conformance** | 15% | Rule engine (not built) | Hard violations: forbidden ports, protocols, IPs |
+| **Peer Comparison** | 5% | DNA cosine similarity | Device diverging from its device-class behavioral norm |
+
+### 7.3 Trust Score Interpretation
+
+| Score Range | Status | Color | Meaning |
+|-------------|--------|-------|---------|
+| 80–100 | `trusted` | 🟢 Green | Device behaving normally |
+| 60–79 | `guarded` | 🟡 Yellow | Minor deviations detected, monitoring |
+| 40–59 | `suspicious` | 🟠 Orange | Significant anomalies, investigate |
+| 0–39 | `critical` | 🔴 Red | Active threat, consider isolation |
+
+### 7.4 Example Walkthrough
+
+Camera SIM-0001 starts C2 beaconing to malicious IP on port 4444:
+
+```
+VAE score:    0.85 (high reconstruction error — new IP, new port)
+IF score:     0.90 (structural outlier — port 4444 never seen)
+LSTM score:   0.00 (not yet implemented)
+GNN score:    0.00 (not yet implemented)
+CUSUM score:  0.20 (some accumulation but not sustained yet)
+
+ensemble = (0.90 × 0.6) + (0.0 × 0.2) + (0.0 × 0.2) = 0.54
+
+penalty = (0.85 × 0.35) + (0.54 × 0.25) + (0.20 × 0.20) + (0.0 × 0.15) + (0.0 × 0.05)
+        = 0.2975 + 0.135 + 0.04 + 0 + 0
+        = 0.4725
+
+Trust Score = 100 - (0.4725 × 100) = 52.75 → STATUS: "suspicious"
+```
+
+If LSTM and GNN were also active and scoring high, the trust would drop much further into `critical` territory.
+
+---
+
+## 8. DNA Fingerprinting System
+
+**File**: [dna_fingerprint.py](file:///d:/coding_files/Projects/DeviceDNA/backend/app/services/dna_fingerprint.py)
+
+### 8.1 What Is a Device DNA?
+
+The DNA fingerprint is a **30-dimensional compressed behavioral signature** that uniquely identifies each device. It combines:
+- The **14D raw feature vector** (normalized)
+- The **16D latent vector** (μ from the VAE encoder)
+
+```
+DNA = [normalized_features(14D) || VAE_latent_μ(16D)] = 30D vector
+```
+
+### 8.2 How It's Computed
+
+```python
+# 1. Pass features through VAE encoder to get latent representation
+mu, _ = model.encode(tensor_x)
+latent_vector = mu.numpy()     # 16D
+
+# 2. Normalize raw features to match latent scale
+norm_features = (features - mean(features)) / (std(features) + 1e-8)    # 14D
+
+# 3. Concatenate into single DNA vector
+dna_signature = concat(norm_features, latent_vector)    # 30D
+```
+
+### 8.3 Two Uses of DNA
+
+**1. Identity Verification** — Compare live DNA to enrolled baseline DNA using **cosine similarity**:
+
+```
+cosine_sim(A, B) = (A · B) / (||A|| × ||B||)
+```
+
+- Similarity > 0.85 → device identity confirmed
+- Similarity < 0.85 → possible firmware compromise or hardware replacement
+
+**2. Unknown Device Classification** — When a new device joins the network, compare its DNA to the class-average DNA of all known classes (camera, sensor, etc.):
+
+```python
+for dev_class, class_dna in known_classes.items():
+    sim = cosine_similarity(unknown_dna, class_dna)
+    if sim > highest_sim:
+        best_match = dev_class
+
+if highest_sim < 0.65:
+    return "unknown_alien_device"    # Completely unknown device type
+```
+
+---
+
+> **Next**: Part 3 covers the **Simulator internals, Frontend dashboard architecture, current project status with gap analysis, and the complete roadmap of what needs to be done**. Prompt me for it.
