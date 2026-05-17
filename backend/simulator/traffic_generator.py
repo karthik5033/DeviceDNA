@@ -38,6 +38,7 @@ def generate_flow(device):
         "flow_id": str(uuid.uuid4()),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "device_id": device['id'],
+        "device_class": device_class,
         "src_ip": device['ip_address'],
         "dst_ip": dst_ip,
         "src_port": random.randint(10000, 60000),

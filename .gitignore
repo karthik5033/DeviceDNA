@@ -20,6 +20,9 @@ backend/.fastapi/
 # Models / Trained Weights
 backend/models_trained/*.pt
 backend/models_trained/*.joblib
+/models_trained/
+
+
 
 # Frontend / Node
 frontend/node_modules/

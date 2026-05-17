@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+import json
 from app.services.trust_engine import master_trust_engine
+from app.db.redis import redis_client
 
 router = APIRouter(prefix="/api/trust", tags=["Trust Score"])
 
@@ -42,18 +44,9 @@ async def get_current_trust_score(device_id: str):
     """
     Get the most recently recorded Trust Score metric for a single LAN device.
     Ideal for rendering dashboard details. 
-    (Simulated response pending Redis Cache hookup)
     """
-    # Assuming the device currently evaluates perfectly without incoming data payload
-    return {
-        "device_id": device_id,
-        "trust_score": 100.0,
-        "status": "trusted",
-        "pillars": {
-            "digital_twin": 0.0,
-            "anomaly_ensemble": 0.0,
-            "drift_intelligence": 0.0,
-            "policy_conformance": 0.0,
-            "peer_comparison": 0.0
-        }
-    }
+    raw_data = redis_client.get(f"trust:{device_id}")
+    if not raw_data:
+        raise HTTPException(status_code=404, detail=f"No recent trust score found for {device_id}")
+        
+    return json.loads(raw_data)

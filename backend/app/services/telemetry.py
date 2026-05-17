@@ -97,11 +97,16 @@ class TelemetryService:
             
             with open('debug_telemetry.log', 'a') as f: f.write(f"Score for {flow.get('device_id')}: {trust_score}\n")
             
-            await sio.emit('trust_update', {
+            final_score_value = float(trust_score.get('trust_score', 0.0)) if isinstance(trust_score, dict) else float(trust_score)
+            
+            payload = {
                 'device_id': flow.get('device_id'),
-                'score': trust_score,
+                'score': final_score_value,
                 'timestamp': datetime.utcnow().isoformat()
-            })
+            }
+            logger.info(f"EMITTING PAYLOAD: {payload}")
+            
+            await sio.emit('trust_update', payload)
             with open('debug_telemetry.log', 'a') as f: f.write(f"Emitted trust_update for {flow.get('device_id')}\n")
         except Exception as e:
             import traceback
