@@ -13,14 +13,18 @@ logging.basicConfig(
 )
 
 from app.services.telemetry import TelemetryService
-from app.api.routes import trust
+from app.api.routes import trust, alerts
 from app.db.influxdb import influx_db
+from app.db.postgres import engine, Base
 from app.api.ws import sio
 
 telemetry_service = TelemetryService(influx_db)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize PostgreSQL tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     # Startup: Run the Kafka flow consumer in the background
     await telemetry_service.start()
     yield
@@ -37,6 +41,7 @@ fastapi_app = FastAPI(
 
 # Insert the API routes into the root app
 fastapi_app.include_router(trust.router)
+fastapi_app.include_router(alerts.router, prefix="/api")
 
 # Configure CORS
 fastapi_app.add_middleware(

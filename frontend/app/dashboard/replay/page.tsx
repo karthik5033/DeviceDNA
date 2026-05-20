@@ -109,7 +109,7 @@ export default function ReplayPage() {
               <div key={i} className={`p-3 rounded-md text-xs font-mono border ${i === 3 ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-[#111827] border-[#1e293b] text-gray-400'}`}>
                 <div className="flex justify-between mb-1">
                   <span>10.0.1.44:50932</span>
-                  <span>-></span>
+                  <span>{"->"}</span>
                   <span className={i===3 ? 'text-red-500 font-bold' : ''}>185.15.x.x:443</span>
                 </div>
                 <div className="flex justify-between text-gray-600">

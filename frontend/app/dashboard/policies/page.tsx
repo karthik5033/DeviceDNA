@@ -146,7 +146,7 @@ export default function NLPPoliciesPage() {
                    }`}>{policy.risk}</span>
                  </div>
                  
-                 <p className="text-sm text-gray-300 italic mb-4 leading-relaxed font-serif pl-3 border-l-2 border-[#1e293b]">"{policy.text}"</p>
+                 <p className="text-sm text-gray-300 italic mb-4 leading-relaxed font-serif pl-3 border-l-2 border-[#1e293b]">&ldquo;{policy.text}&rdquo;</p>
                  
                  <div className="flex justify-between items-center text-xs pt-3 border-t border-[#1e293b]/50">
                     <span className="text-gray-500 flex items-center gap-1">Matches: <span className="font-bold text-white font-mono">{policy.matchCount}</span></span>

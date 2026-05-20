@@ -4,9 +4,13 @@ from datetime import datetime
 from app.ml.vae.scoring import twin_scorer
 from app.ml.isolation_forest.model import if_scorer
 from app.ml.lstm.scoring import lstm_scorer
+from app.ml.gnn.scoring import gnn_scorer
 from app.services.drift_engine import cusum_engine
 from app.db.influxdb import influx_db
 from app.db.redis import redis_client
+from app.db.postgres import AsyncSessionLocal
+from app.db.models import Alert
+from app.api.ws import sio
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,8 @@ class TrustScoreEngine:
         }
         # In-memory history buffer for sequence models like LSTM
         self.device_history = {}
+        # Track recently evaluated devices for GNN co-evaluation proximity edges
+        self._recent_eval_window: list[str] = []
 
     async def evaluate_device(self, device_id: str, device_class: str, current_features: list[float], baseline_stats: dict) -> dict:
         """
@@ -52,9 +58,20 @@ class TrustScoreEngine:
         # 4. LSTM Sequence Prediction (0 -> 1.0)
         lstm_anomaly = lstm_scorer.score(device_id, self.device_history[device_id])
 
+        # 5. GNN Graph Anomaly Detection (0 -> 1.0)
+        # Build co-evaluation proximity edges: devices evaluated within the same
+        # Kafka batch window are likely communicating in the same time slice
+        for recent_id in self._recent_eval_window[-10:]:
+            if recent_id != device_id:
+                gnn_scorer.update_graph(device_id, recent_id)
+        self._recent_eval_window.append(device_id)
+        if len(self._recent_eval_window) > 50:
+            self._recent_eval_window = self._recent_eval_window[-50:]
+
+        gnn_anomaly = gnn_scorer.score(device_id, current_features)
+
         # Combine the structural algorithms into the ensemble pillar
-        # Assuming GNN (GraphSAGE) evaluates as 0 currently pending GPU implementations
-        ensemble_score = (if_anomaly * 0.4) + (lstm_anomaly * 0.4) + (0.0 * 0.2)
+        ensemble_score = (if_anomaly * 0.6) + (lstm_anomaly * 0.2) + (gnn_anomaly * 0.2)
 
         # Assuming Policy violations = 0 for default flow
         policy_penalty = 0.0
@@ -75,7 +92,7 @@ class TrustScoreEngine:
         # Scale penalty from 0.0-1.0 into absolute trust 100-0 drop
         final_trust_score = max(0.0, min(100.0, 100.0 - (penalty_percentage * 100)))
         
-        log_msg = f"Trust Computed - Device: {device_id} | VAE: {vae_dev:.4f} | IF: {if_anomaly:.4f} | LSTM: {lstm_anomaly:.4f} | Penalty: {penalty_percentage:.4f} | Final: {final_trust_score:.2f}"
+        log_msg = f"Trust Computed - Device: {device_id} | VAE: {vae_dev:.4f} | IF: {if_anomaly:.4f} | LSTM: {lstm_anomaly:.4f} | GNN: {gnn_anomaly:.4f} | Penalty: {penalty_percentage:.4f} | Final: {final_trust_score:.2f}"
         logger.info(log_msg)
         with open('trust_scores.log', 'a') as f:
             f.write(log_msg + '\n')
@@ -99,23 +116,81 @@ class TrustScoreEngine:
                 "anomaly_ensemble": float(ensemble_score),
                 "drift_intelligence": float(drift_score),
                 "policy_conformance": float(policy_penalty),
-                "peer_comparison": float(peer_penalty)
+                "peer_comparison": float(peer_penalty),
+                "gnn_raw": float(gnn_anomaly),
+                "if_raw": float(if_anomaly),
+                "lstm_raw": float(lstm_anomaly)
             }
         }
         
         # NOTE: Missing feature - Persisting this score to InfluxDB
         try:
+            previous_redis_data = redis_client.get(f"trust:{device_id}")
+            previous_score = None
+            if previous_redis_data:
+                previous_score = json.loads(previous_redis_data).get("score")
+
             redis_data = {
                 "score": float(final_trust_score),
                 "device_id": device_id,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "vae_score": float(vae_dev),
-                "if_score": float(ensemble_score),
+                "if_score": float(if_anomaly),
+                "lstm_score": float(lstm_anomaly),
+                "gnn_score": float(gnn_anomaly),
+                "ensemble_score": float(ensemble_score),
                 "penalty": float(penalty_percentage)
             }
             redis_client.setex(f"trust:{device_id}", 3600, json.dumps(redis_data))
+            
+            # --- Alert Generation Logic ---
+            alert_severity = None
+            alert_msg = None
+            if final_trust_score < 40:
+                alert_severity = "critical"
+                alert_msg = f"Device {device_id} trust score critically low ({final_trust_score:.2f})."
+            elif final_trust_score < 60:
+                alert_severity = "high"
+                alert_msg = f"Device {device_id} trust score dropped to high risk ({final_trust_score:.2f})."
+            elif previous_score is not None and (previous_score - final_trust_score) > 15:
+                alert_severity = "medium"
+                alert_msg = f"Device {device_id} trust score dropped sharply by {previous_score - final_trust_score:.2f} points."
+
+            if alert_severity:
+                new_alert = Alert(
+                    device_id=device_id,
+                    severity=alert_severity,
+                    alert_type="trust_score_drop",
+                    message=alert_msg,
+                    trust_score=float(final_trust_score),
+                    vae_score=float(vae_dev),
+                    if_score=float(if_anomaly),
+                    lstm_score=float(lstm_anomaly),
+                    gnn_score=float(gnn_anomaly)
+                )
+                async with AsyncSessionLocal() as session:
+                    session.add(new_alert)
+                    await session.commit()
+                    await session.refresh(new_alert)
+                
+                alert_payload = {
+                    "id": new_alert.id,
+                    "device": new_alert.device_id,
+                    "severity": new_alert.severity,
+                    "type": new_alert.alert_type,
+                    "message": new_alert.message,
+                    "score": new_alert.trust_score,
+                    "vae_score": new_alert.vae_score,
+                    "if_score": new_alert.if_score,
+                    "lstm_score": new_alert.lstm_score,
+                    "gnn_score": new_alert.gnn_score,
+                    "time": new_alert.timestamp.isoformat() + "Z",
+                    "is_resolved": new_alert.is_resolved
+                }
+                await sio.emit("new_alert", alert_payload)
+
         except Exception as e:
-            logger.error(f"Failed to write trust score to Redis for {device_id}: {e}")
+            logger.error(f"Failed to process trust score storage/alerts for {device_id}: {e}")
             
         return score_profile
 

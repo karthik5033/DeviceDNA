@@ -67,7 +67,7 @@ export default function DashboardOverview() {
         console.log('🔥 RECEIVED TRUST UPDATE:', data);
         setTrustScores(prev => {
             const newScores = { ...prev, [data.device_id]: data.score };
-            const values = Object.values(newScores);
+            const values = Object.values(newScores) as number[];
             setActiveDevices(values.length);
             const computedAvg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
             if (Number.isFinite(computedAvg)) {
@@ -117,6 +117,7 @@ export default function DashboardOverview() {
 
   const handleIsolate = (nodeId: string) => {
      setIsolatedNode(nodeId);
+     console.log('Isolating node with current state:', trustScores);
   };
 
   return (

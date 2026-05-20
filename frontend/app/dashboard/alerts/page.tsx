@@ -1,56 +1,50 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ShieldAlert, Terminal, Eye, AlertTriangle, ArrowRight, Zap, Flame, Fingerprint, RefreshCcw } from 'lucide-react';
+import { ShieldAlert, Terminal, Eye, AlertTriangle, Zap, Flame, Fingerprint, RefreshCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { io } from 'socket.io-client';
 
 const socket = io('http://localhost:8000');
 
-// Faked Live Alert Pipeline seeded data
-const MOCK_ALERTS = [
-  { id: 'ALT-9402', device: 'SIM-0012', severity: 'critical', type: 'C2 Beaconing', model: 'Isolation Forest', message: 'Categorical port anomaly. Exfiltrating 443 to external static IP block 192.168.10.x', time: '1m ago', score: 32 },
-  { id: 'ALT-9401', device: 'SIM-0044', severity: 'high', type: 'Lateral Movement', model: 'GraphSAGE GNN', message: 'Device mapped scanning adjacent IP camera block 10.0.1.x using SMB protocols.', time: '12m ago', score: 48 },
-  { id: 'ALT-9400', device: 'SIM-0003', severity: 'high', type: 'Policy Violation', model: 'NLP Engine', message: '"Thermostats shall not contact Chinese endpoints." DNS resolution flagged.', time: '15m ago', score: 55 },
-  { id: 'ALT-9399', device: 'SIM-0021', severity: 'medium', type: 'Slow Exfiltration', model: 'CUSUM Drift', message: 'Consecutive bytes uploaded threshold triggered over 72 hour cumulative window.', time: '2h ago', score: 62 },
-  { id: 'ALT-9398', device: 'SIM-0019', severity: 'low', type: 'Suspicious Flow', model: 'LSTM TimeSeries', message: 'Predicted temporal flow variance exceeded MSE threshold by 4%. Watch.', time: '5h ago', score: 78 },
-];
-
 export default function AlertsPage() {
   const [filter, setFilter] = useState('all');
-  const [liveAlerts, setLiveAlerts] = useState<any[]>(MOCK_ALERTS);
+  const [liveAlerts, setLiveAlerts] = useState<any[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
-  const [isIsolating, setIsIsolating] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
 
   useEffect(() => {
+    // Fetch initial alerts
+    fetch('http://localhost:8000/api/alerts')
+      .then(res => res.json())
+      .then(data => setLiveAlerts(data))
+      .catch(err => console.error('Failed to fetch alerts:', err));
+
     socket.on('new_alert', (alert) => {
       setLiveAlerts((prev) => [alert, ...prev]);
-    });
-    
-    socket.on('device_isolated', (res) => {
-       setIsIsolating(false);
-       setLiveAlerts(prev => prev.filter(a => a.device !== res.device));
-       setSelectedAlert(null);
     });
 
     return () => {
       socket.off('new_alert');
-      socket.off('device_isolated');
     };
   }, []);
 
-  const handleIsolate = () => {
+  const handleResolve = async () => {
     if (!selectedAlert) return;
-    setIsIsolating(true);
-    // Ping backend to isolate
-    socket.emit('isolate_device', { device: selectedAlert.device });
-    
-    // Fallback UI isolation in case backend doesn't respond instantly
-    setTimeout(() => {
-       setIsIsolating(false);
-       setLiveAlerts(prev => prev.filter(a => a.device !== selectedAlert.device));
-       setSelectedAlert(null);
-    }, 2000);
+    setIsResolving(true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/alerts/${selectedAlert.id}/resolve`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        setLiveAlerts(prev => prev.filter(a => a.id !== selectedAlert.id));
+        setSelectedAlert(null);
+      }
+    } catch (err) {
+      console.error('Failed to resolve alert:', err);
+    } finally {
+      setIsResolving(false);
+    }
   };
 
   return (
@@ -109,16 +103,16 @@ export default function AlertsPage() {
 
               <div className="flex justify-between items-start mb-2">
                 <div className="flex gap-3 items-center">
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#1e293b] text-gray-300">{alert.id}</span>
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#1e293b] text-gray-300">{alert.id.split('-')[0]}..</span>
                   <span className="font-mono text-[#3edcff] font-bold tracking-tight text-sm flex items-center gap-1">
-                    <Terminal size={14} /> {alert.device}
+                    <Terminal size={14} /> {alert.device_id || alert.device}
                   </span>
                 </div>
                 <div className="flex gap-4 items-center">
-                  <span className="text-xs font-mono text-gray-500">{alert.time}</span>
+                  <span className="text-xs font-mono text-gray-500">{new Date(alert.timestamp || alert.time).toLocaleTimeString()}</span>
                   <div className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-[#070b14] border border-[#1e293b]">
-                    <span className={alert.score < 40 ? 'text-red-500 font-bold' : alert.score < 60 ? 'text-orange-500' : 'text-yellow-500'}>
-                      {alert.score.toFixed(1)}
+                    <span className={(alert.trust_score || alert.score) < 40 ? 'text-red-500 font-bold' : (alert.trust_score || alert.score) < 60 ? 'text-orange-500' : 'text-yellow-500'}>
+                      {(alert.trust_score || alert.score).toFixed(1)}
                     </span>
                     <span className="text-gray-600">Trust</span>
                   </div>
@@ -127,7 +121,7 @@ export default function AlertsPage() {
 
               <h2 className="text-lg font-bold text-gray-200 mb-1 flex items-center gap-2 tracking-tight">
                 {alert.severity === 'critical' ? <Flame size={18} className="text-red-500 animate-pulse" /> : <AlertTriangle size={18} className="text-orange-500" />}
-                {alert.type}
+                {alert.alert_type || alert.type}
               </h2>
               
               <p className="text-sm text-gray-400 mb-4">{alert.message}</p>
@@ -135,12 +129,8 @@ export default function AlertsPage() {
               <div className="flex justify-between items-center text-xs">
                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#1e293b]/50 border border-[#334155] text-gray-400 font-medium">
                     <Fingerprint size={12} className="text-[#3edcff]" />
-                    Detected By: <span className="text-white">{alert.model}</span>
+                    Scores: <span className="text-white">VAE: {alert.vae_score?.toFixed(2)} | IF: {alert.if_score?.toFixed(2)} | LSTM: {alert.lstm_score?.toFixed(2)} | GNN: {alert.gnn_score?.toFixed(2)}</span>
                  </div>
-                 
-                 <button className="flex items-center gap-1 text-[#3edcff] hover:text-white transition-colors group-hover:underline decoration-[#3edcff] underline-offset-4">
-                    View Explainable Proof <ArrowRight size={14} />
-                 </button>
               </div>
             </div>
           ))}
@@ -184,20 +174,20 @@ export default function AlertsPage() {
             </div>
             
             <button 
-               disabled={!selectedAlert || isIsolating}
-               onClick={handleIsolate}
+               disabled={!selectedAlert || isResolving}
+               onClick={handleResolve}
                className={cn(
                  "w-full mt-6 py-2 border rounded-lg text-sm font-bold transition-all flex justify-center items-center gap-2",
                  selectedAlert 
-                   ? "bg-red-500/10 hover:bg-red-500/20 text-red-500 border-red-500/50 hover:shadow-[0_0_15px_rgba(239,68,68,0.3)] shadow-inner" 
+                   ? "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.3)] shadow-inner" 
                    : "bg-[#070b14] text-gray-600 border-[#1e293b] cursor-not-allowed",
-                 isIsolating && "opacity-50"
+                 isResolving && "opacity-50"
                )}
             >
-              {isIsolating ? (
-                <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div> Isolating Node...</span>
+              {isResolving ? (
+                <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div> Resolving Alert...</span>
               ) : (
-                <><Zap size={16} /> Isolate Device Immediately</>
+                <><Zap size={16} /> Resolve Alert</>
               )}
             </button>
           </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, Activity, ArrowDownToLine, Crosshair, Cpu, Network, ShieldX } from 'lucide-react';
+import { Activity, Crosshair, Network, ShieldX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useParams } from 'next/navigation';
 
