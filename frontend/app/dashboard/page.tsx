@@ -1,15 +1,38 @@
 'use client';
 
-import { Activity, ShieldAlert, Wifi, Server, CheckCircle2 } from 'lucide-react';
+import { Activity, ShieldAlert, Wifi, Server, CheckCircle2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import NetworkTopologyMap from '@/components/visualizations/NetworkTopologyMap';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import { ResponsiveContainer, AreaChart, Area } from 'recharts';
+
+// Pre-compute stable particle data to avoid SSR/client hydration mismatch
+type ParticleData = {
+  x: number; y: number; opacity: number; scale: number;
+  animY: number; duration: number; large: boolean;
+};
 
 // Particle Background for deep navy with shallow DOF
 const ParticleField = ({ success }: { success: boolean }) => {
+  const [particles, setParticles] = useState<ParticleData[]>([]);
+
+  useEffect(() => {
+    setParticles(
+      Array.from({ length: 40 }).map(() => ({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        opacity: Math.random() * 0.3 + 0.1,
+        scale: Math.random() * 1.5 + 0.5,
+        animY: Math.random() * -200 - 50,
+        duration: Math.random() * 10 + 10,
+        large: Math.random() > 0.5,
+      }))
+    );
+  }, []);
+
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
       <div className="absolute inset-0 bg-[#040814]" />
@@ -17,27 +40,15 @@ const ParticleField = ({ success }: { success: boolean }) => {
       <div className={cn("absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full blur-[180px] opacity-20 transition-colors duration-1000", success ? "bg-[#2dd4bf]" : "bg-[#0ea5e9]")} />
       <div className={cn("absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full blur-[150px] opacity-10 transition-colors duration-1000", success ? "bg-[#22c55e]" : "bg-[#3edcff]")} />
       <div className={cn("absolute top-[40%] left-[50%] w-[30%] h-[30%] rounded-full blur-[200px] opacity-10 transition-colors duration-1000", success ? "bg-[#2dd4bf]" : "bg-[#0ea5e9]")} />
-      
-      {/* Particles with DOF blur */}
-      {Array.from({ length: 40 }).map((_, i) => (
+
+      {/* Particles with DOF blur — only rendered client-side after mount */}
+      {particles.map((p, i) => (
         <motion.div
           key={i}
-          initial={{
-            x: Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 2000),
-            y: Math.random() * (typeof window !== 'undefined' ? window.innerHeight : 1000),
-            opacity: Math.random() * 0.3 + 0.1,
-            scale: Math.random() * 1.5 + 0.5,
-          }}
-          animate={{
-            y: [null, Math.random() * -200 - 50],
-            opacity: [null, 0],
-          }}
-          transition={{
-            duration: Math.random() * 10 + 10,
-            repeat: Infinity,
-            ease: 'linear',
-          }}
-          className={cn("absolute bg-white rounded-full", Math.random() > 0.5 ? "w-1.5 h-1.5 blur-[2px]" : "w-1 h-1")}
+          initial={{ x: p.x, y: p.y, opacity: p.opacity, scale: p.scale }}
+          animate={{ y: [null, p.animY], opacity: [null, 0] }}
+          transition={{ duration: p.duration, repeat: Infinity, ease: 'linear' }}
+          className={cn("absolute bg-white rounded-full", p.large ? "w-1.5 h-1.5 blur-[2px]" : "w-1 h-1")}
         />
       ))}
     </div>
@@ -54,7 +65,44 @@ export default function DashboardOverview() {
   const [trustScores, setTrustScores] = useState<Record<string, number>>({});
   const [latestAlert, setLatestAlert] = useState<{device: string, type: string, time: string} | null>(null);
 
+  // Sparkline state
+  const [selectedNode, setSelectedNode] = useState<{ id: string; score: number } | null>(null);
+  const [sparkData, setSparkData] = useState<{ trust_score: number }[]>([]);
+  const [sparkLoading, setSparkLoading] = useState(false);
+
+  const handleNodeClick = useCallback((nodeId: string, nodeScore: number) => {
+    setSelectedNode({ id: nodeId, score: nodeScore });
+    setSparkLoading(true);
+    fetch(`http://localhost:8000/api/trust/${nodeId}/history?hours=6`)
+      .then(res => res.json())
+      .then((data: any[]) => {
+        setSparkData(data.map((p: any) => ({ trust_score: p.trust_score ?? 0 })));
+      })
+      .catch(() => setSparkData([]))
+      .finally(() => setSparkLoading(false));
+  }, []);
+
+  const getSparkColor = (score: number) => {
+    if (score >= 65) return '#22c55e';
+    if (score >= 40) return '#f97316';
+    return '#ef4444';
+  };
+
   useEffect(() => {
+    // Fetch initial devices from Redis to populate the dashboard before WebSocket messages arrive
+    fetch('http://localhost:8000/api/trust/devices')
+      .then(res => res.json())
+      .then(data => {
+        setTrustScores(data);
+        const values = Object.values(data) as number[];
+        setActiveDevices(values.length);
+        if (values.length > 0) {
+            setAvgTrustScore(values.reduce((a, b) => a + b, 0) / values.length);
+        }
+        setCriticalAlerts(values.filter(v => v < 40).length);
+      })
+      .catch(err => console.error("Failed to fetch initial devices", err));
+
     const socket = io('http://localhost:8000', {
        transports: ['polling', 'websocket'],
     });
@@ -64,7 +112,6 @@ export default function DashboardOverview() {
     });
 
     socket.on('trust_update', (data) => {
-        console.log('🔥 RECEIVED TRUST UPDATE:', data);
         setTrustScores(prev => {
             const newScores = { ...prev, [data.device_id]: data.score };
             const values = Object.values(newScores) as number[];
@@ -174,9 +221,70 @@ export default function DashboardOverview() {
               </div>
             </div>
             <div className="flex-1 w-full relative bg-gradient-to-br from-transparent to-black/30">
-              <NetworkTopologyMap onIsolate={handleIsolate} />
+              <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} />
             </div>
           </div>
+
+          {/* Sparkline Panel — appears below topology map on node click */}
+          <AnimatePresence>
+            {selectedNode && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: -10, height: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+                className="lg:col-span-3 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5"
+              >
+                <div className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Selected Device</span>
+                      <span className="text-lg font-mono font-bold text-white tracking-tight">{selectedNode.id}</span>
+                    </div>
+                    <div className="flex flex-col items-center px-4 border-l border-white/10">
+                      <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Trust Score</span>
+                      <span className="text-2xl font-mono font-bold" style={{ color: getSparkColor(selectedNode.score) }}>
+                        {selectedNode.score.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-[200px] max-w-[400px] h-[50px] ml-4">
+                      {sparkLoading ? (
+                        <div className="w-full h-full bg-white/[0.03] rounded animate-pulse" />
+                      ) : sparkData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.4} />
+                                <stop offset="100%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <Area
+                              type="monotone"
+                              dataKey="trust_score"
+                              stroke={getSparkColor(selectedNode.score)}
+                              strokeWidth={1.5}
+                              fill="url(#sparkGrad)"
+                              isAnimationActive={false}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-600 font-mono text-[10px]">No history</div>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-mono text-gray-500 ml-2">6h history</span>
+                  </div>
+                  <button
+                    onClick={() => setSelectedNode(null)}
+                    className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Right Side Stack: Timeline & Logs */}
           <div className="lg:col-span-1 flex flex-col gap-6">
