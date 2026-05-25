@@ -5,6 +5,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'], variable: '--font-ui' });
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+
 export const metadata: Metadata = {
   title: 'DeviceDNA SOC',
   description: 'AI-Powered IoT Cybersecurity Intelligence Platform',
@@ -18,7 +20,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased bg-[#070b14] text-white min-h-screen`}>
-        {children}
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
       </body>
     </html>
   );
