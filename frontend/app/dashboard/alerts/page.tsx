@@ -7,6 +7,170 @@ import { io } from 'socket.io-client';
 
 const socket = io('http://localhost:8000');
 
+function AlertCard({ alert, isSelected, onClick }: { alert: any, isSelected: boolean, onClick: () => void }) {
+  const [isBriefOpen, setIsBriefOpen] = useState(false);
+  const [responseStatus, setResponseStatus] = useState<any>(null);
+  const tib = alert.tib;
+  const deviceId = alert.device_id || alert.device;
+
+  useEffect(() => {
+    if (!deviceId) return;
+    fetch(`http://localhost:8000/api/response/${deviceId}/status`)
+      .then(res => res.json())
+      .then(data => setResponseStatus(data))
+      .catch(err => console.error('Failed to fetch response status', err));
+  }, [deviceId]);
+
+  return (
+    <div 
+       className={cn(
+         "bg-[#111827] border rounded-xl p-4 transition-colors relative group overflow-hidden pl-5 cursor-pointer flex flex-col gap-4",
+         isSelected ? "border-[#3edcff] shadow-[0_0_15px_rgba(62,220,255,0.1)]" : "border-[#1e293b] hover:border-[#334155]"
+       )}
+       onClick={onClick}
+    >
+      <div className="flex flex-col relative w-full">
+         <div className={cn("absolute -left-5 top-0 w-1.5 h-full", 
+            alert.severity === 'critical' ? 'bg-red-500 shadow-[0_0_15px_#ef4444]' :
+            alert.severity === 'high' ? 'bg-orange-500 shadow-[0_0_15px_#f97316]' :
+            alert.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-500'
+          )}></div>
+
+         <div className="flex justify-between items-start mb-2">
+            <div className="flex gap-3 items-center">
+              <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#1e293b] text-gray-300">{alert.id.split('-')[0]}..</span>
+              <span className="font-mono text-[#3edcff] font-bold tracking-tight text-sm flex items-center gap-1">
+                <Terminal size={14} /> {deviceId}
+              </span>
+            </div>
+            <div className="flex gap-4 items-center">
+              <span className="text-xs font-mono text-gray-500">{new Date(alert.timestamp || alert.time).toLocaleTimeString()}</span>
+              <div className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-[#070b14] border border-[#1e293b]">
+                <span className={(alert.trust_score || alert.score) < 40 ? 'text-red-500 font-bold' : (alert.trust_score || alert.score) < 60 ? 'text-orange-500' : 'text-yellow-500'}>
+                  {(alert.trust_score || alert.score).toFixed(1)}
+                </span>
+                <span className="text-gray-600">Trust</span>
+              </div>
+            </div>
+          </div>
+
+          <h2 className="text-lg font-bold text-gray-200 mb-1 flex items-center gap-2 tracking-tight">
+            {alert.severity === 'critical' ? <Flame size={18} className="text-red-500 animate-pulse" /> : <AlertTriangle size={18} className="text-orange-500" />}
+            {alert.alert_type || alert.type}
+          </h2>
+
+          {responseStatus && (responseStatus.isolated || responseStatus.sandboxed || responseStatus.forensic_capture) && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {responseStatus.isolated && (
+                <span className="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Isolated
+                </span>
+              )}
+              {responseStatus.sandboxed && (
+                <span className="px-2 py-0.5 rounded bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500" /> Sandboxed
+                </span>
+              )}
+              {responseStatus.forensic_capture && (
+                <span className="px-2 py-0.5 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" /> Forensic
+                </span>
+              )}
+            </div>
+          )}
+          
+          <p className="text-sm text-gray-400 mb-4">{alert.message}</p>
+          
+          <div className="flex justify-between items-center text-xs">
+             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#1e293b]/50 border border-[#334155] text-gray-400 font-medium">
+                <Fingerprint size={12} className="text-[#3edcff]" />
+                Scores: <span className="text-white">VAE: {alert.vae_score?.toFixed(2)} | IF: {alert.if_score?.toFixed(2)} | LSTM: {alert.lstm_score?.toFixed(2)} | GNN: {alert.gnn_score?.toFixed(2)}</span>
+             </div>
+             {tib && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsBriefOpen(!isBriefOpen); }}
+                  className="px-3 py-1.5 bg-[#3edcff]/10 text-[#3edcff] border border-[#3edcff]/30 rounded-md hover:bg-[#3edcff]/20 transition-colors font-semibold z-10 relative"
+                >
+                  {isBriefOpen ? "Close Brief" : "View Brief"}
+                </button>
+             )}
+          </div>
+      </div>
+
+      {isBriefOpen && tib && (
+         <div className="mt-2 pt-4 border-t border-[#1e293b] flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
+           {/* Headline */}
+           <h3 className="text-xl font-bold text-white tracking-tight">{tib.headline}</h3>
+
+           {/* Metrics Row */}
+           <div className="flex flex-wrap gap-4 items-center bg-[#070b14] p-3 rounded-lg border border-[#1e293b]">
+             {/* Trust Score Delta */}
+             <div className="flex items-center gap-2 text-sm font-mono">
+                <span className="text-gray-400">Trust Drop:</span>
+                <span className="text-gray-300">{tib.trust_score_previous}</span>
+                <span className="text-gray-500">→</span>
+                <span className="text-white font-bold">{tib.trust_score_current}</span>
+                <span className="text-red-500 font-bold ml-1">({tib.trust_score_delta > 0 ? '+' : ''}{tib.trust_score_delta})</span>
+             </div>
+             {/* Confidence Badge */}
+             <div className="flex items-center gap-2 text-sm font-mono border-l border-[#1e293b] pl-4">
+               <span className="text-gray-400">Confidence:</span>
+               <span className="text-[#3edcff] font-bold">{(tib.confidence_score * 100).toFixed(0)}%</span>
+             </div>
+           </div>
+
+           {/* Evidence List */}
+           <div>
+             <h4 className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider flex items-center gap-2">
+                <ShieldAlert size={14} className="text-[#3edcff]" /> Primary Evidence
+             </h4>
+             <ul className="space-y-2">
+               {tib.evidence_list?.map((evidence: string, i: number) => (
+                 <li key={i} className="flex gap-3 text-sm text-gray-400 items-start bg-[#1e293b]/30 p-2.5 rounded-md border border-[#1e293b]/50">
+                    <span className="text-[#3edcff] font-mono mt-0.5">{i + 1}.</span>
+                    <span>{evidence}</span>
+                 </li>
+               ))}
+             </ul>
+           </div>
+
+           {/* Model Scores Pills */}
+           <div>
+             <h4 className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider flex items-center gap-2">
+                <Terminal size={14} className="text-purple-400" /> Explainability Contributors
+             </h4>
+             <div className="flex flex-wrap gap-2">
+               {Object.entries(tib.model_scores || {}).map(([model, score]) => (
+                  <span key={model} className="px-3 py-1 bg-purple-500/10 border border-purple-500/30 text-purple-300 rounded-full text-xs font-mono uppercase">
+                    {model}: {Number(score).toFixed(3)}
+                  </span>
+               ))}
+             </div>
+           </div>
+
+           {/* Recommended Actions */}
+           <div>
+             <h4 className="text-sm font-bold text-gray-300 mb-3 uppercase tracking-wider flex items-center gap-2">
+                <Zap size={14} className="text-yellow-400" /> Recommended Actions
+             </h4>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {tib.recommended_actions?.map((action: string, i: number) => {
+                   const colors = ["border-red-500", "border-yellow-500", "border-blue-500"];
+                   return (
+                     <div key={i} className={cn("bg-[#070b14] border border-[#1e293b] border-l-4 p-3 rounded-r-lg shadow-sm flex gap-3 items-start", colors[i % colors.length])}>
+                        <span className="text-gray-500 font-mono text-sm mt-0.5">{i + 1}.</span>
+                        <span className="text-sm text-gray-300 leading-snug">{action}</span>
+                     </div>
+                   )
+                })}
+             </div>
+           </div>
+         </div>
+      )}
+    </div>
+  );
+}
+
 export default function AlertsPage() {
   const [filter, setFilter] = useState('all');
   const [liveAlerts, setLiveAlerts] = useState<any[]>([]);
@@ -85,54 +249,12 @@ export default function AlertsPage() {
         {/* Full Alert Feed List */}
         <div className="xl:col-span-2 flex flex-col gap-3">
           {liveAlerts.filter(a => filter === 'all' || a.severity === filter).map((alert, idx) => (
-            <div 
-               key={alert.id || idx} 
-               onClick={() => setSelectedAlert(alert)}
-               className={cn(
-                 "bg-[#111827] border rounded-xl p-4 transition-colors relative group overflow-hidden pl-5 cursor-pointer",
-                 selectedAlert?.id === alert.id ? "border-[#3edcff] shadow-[0_0_15px_rgba(62,220,255,0.1)]" : "border-[#1e293b] hover:border-[#334155]"
-               )}
-            >
-              
-              {/* Severity Side Bar */}
-              <div className={cn("absolute left-0 top-0 w-1.5 h-full", 
-                alert.severity === 'critical' ? 'bg-red-500 shadow-[0_0_15px_#ef4444]' :
-                alert.severity === 'high' ? 'bg-orange-500 shadow-[0_0_15px_#f97316]' :
-                alert.severity === 'medium' ? 'bg-yellow-500' : 'bg-gray-500'
-              )}></div>
-
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex gap-3 items-center">
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#1e293b] text-gray-300">{alert.id.split('-')[0]}..</span>
-                  <span className="font-mono text-[#3edcff] font-bold tracking-tight text-sm flex items-center gap-1">
-                    <Terminal size={14} /> {alert.device_id || alert.device}
-                  </span>
-                </div>
-                <div className="flex gap-4 items-center">
-                  <span className="text-xs font-mono text-gray-500">{new Date(alert.timestamp || alert.time).toLocaleTimeString()}</span>
-                  <div className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-[#070b14] border border-[#1e293b]">
-                    <span className={(alert.trust_score || alert.score) < 40 ? 'text-red-500 font-bold' : (alert.trust_score || alert.score) < 60 ? 'text-orange-500' : 'text-yellow-500'}>
-                      {(alert.trust_score || alert.score).toFixed(1)}
-                    </span>
-                    <span className="text-gray-600">Trust</span>
-                  </div>
-                </div>
-              </div>
-
-              <h2 className="text-lg font-bold text-gray-200 mb-1 flex items-center gap-2 tracking-tight">
-                {alert.severity === 'critical' ? <Flame size={18} className="text-red-500 animate-pulse" /> : <AlertTriangle size={18} className="text-orange-500" />}
-                {alert.alert_type || alert.type}
-              </h2>
-              
-              <p className="text-sm text-gray-400 mb-4">{alert.message}</p>
-              
-              <div className="flex justify-between items-center text-xs">
-                 <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#1e293b]/50 border border-[#334155] text-gray-400 font-medium">
-                    <Fingerprint size={12} className="text-[#3edcff]" />
-                    Scores: <span className="text-white">VAE: {alert.vae_score?.toFixed(2)} | IF: {alert.if_score?.toFixed(2)} | LSTM: {alert.lstm_score?.toFixed(2)} | GNN: {alert.gnn_score?.toFixed(2)}</span>
-                 </div>
-              </div>
-            </div>
+             <AlertCard 
+                key={alert.id || idx} 
+                alert={alert} 
+                isSelected={selectedAlert?.id === alert.id} 
+                onClick={() => setSelectedAlert(alert)} 
+             />
           ))}
           {liveAlerts.length === 0 && (
              <div className="text-gray-500 p-8 border border-dashed border-[#1e293b] rounded-xl text-center flex flex-col items-center justify-center font-mono">
