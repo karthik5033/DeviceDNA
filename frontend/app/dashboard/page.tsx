@@ -5,9 +5,10 @@ import { cn } from '@/lib/utils';
 import NetworkTopologyMap from '@/components/visualizations/NetworkTopologyMap';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
 // Pre-compute stable particle data to avoid SSR/client hydration mismatch
 type ParticleData = {
@@ -67,11 +68,13 @@ export default function DashboardOverview() {
 
   // Sparkline state
   const [selectedNode, setSelectedNode] = useState<{ id: string; score: number } | null>(null);
+  const selectedNodeRef = useRef<string | null>(null);
   const [sparkData, setSparkData] = useState<{ trust_score: number }[]>([]);
   const [sparkLoading, setSparkLoading] = useState(false);
 
   const handleNodeClick = useCallback((nodeId: string, nodeScore: number) => {
     setSelectedNode({ id: nodeId, score: nodeScore });
+    selectedNodeRef.current = nodeId;
     setSparkLoading(true);
     fetch(`http://localhost:8000/api/trust/${nodeId}/history?hours=6`)
       .then(res => res.json())
@@ -80,6 +83,11 @@ export default function DashboardOverview() {
       })
       .catch(() => setSparkData([]))
       .finally(() => setSparkLoading(false));
+  }, []);
+
+  const handleCloseSparkline = useCallback(() => {
+    setSelectedNode(null);
+    selectedNodeRef.current = null;
   }, []);
 
   const getSparkColor = (score: number) => {
@@ -123,6 +131,14 @@ export default function DashboardOverview() {
             setCriticalAlerts(values.filter(v => v < 40).length);
             return newScores;
         });
+        
+        if (selectedNodeRef.current === data.device_id) {
+            setSparkData(prev => {
+                const newData = [...prev, { trust_score: data.score }];
+                if (newData.length > 300) return newData.slice(newData.length - 300);
+                return newData;
+            });
+        }
     });
 
     socket.on('new_alert', (data) => {
@@ -208,106 +224,117 @@ export default function DashboardOverview() {
           ))}
         </div>
 
-        {/* Main Grid Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1 min-h-[550px]">
-          
-          {/* Center Screen: D3 Graph */}
-          <div className="lg:col-span-3 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col relative overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
-            <div className="p-4 border-b border-white/5 bg-black/40 flex justify-between items-center z-10">
-              <h2 className="font-semibold text-sm text-gray-200 tracking-widest uppercase">Live Topology / Force-Directed Graph</h2>
-              <div className="flex items-center gap-2">
-                 <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e] animate-pulse" />
-                 <span className="text-xs font-mono text-gray-400">SYNC ACTIVE</span>
-              </div>
-            </div>
-            <div className="flex-1 w-full relative bg-gradient-to-br from-transparent to-black/30">
-              <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} />
-            </div>
-          </div>
-
-          {/* Sparkline Panel — appears below topology map on node click */}
-          <AnimatePresence>
-            {selectedNode && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                exit={{ opacity: 0, y: -10, height: 0 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="lg:col-span-3 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5"
-              >
-                <div className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Selected Device</span>
-                      <span className="text-lg font-mono font-bold text-white tracking-tight">{selectedNode.id}</span>
+        {/* Main Resizable Area */}
+        <div className="flex-1 min-h-[550px] relative">
+          <PanelGroup autoSaveId="dashboard-panels" orientation="horizontal" className="w-full h-full">
+            {/* Left Side: Topology Map + Sparkline */}
+            <Panel defaultSize={75} minSize={50}>
+              <div className="h-full flex flex-col gap-6 pr-3">
+                {/* Center Screen: D3 Graph */}
+                <div className="flex-1 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col relative overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
+                  <div className="p-4 border-b border-white/5 bg-black/40 flex justify-between items-center z-10">
+                    <h2 className="font-semibold text-sm text-gray-200 tracking-widest uppercase">Live Topology / Force-Directed Graph</h2>
+                    <div className="flex items-center gap-2">
+                       <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e] animate-pulse" />
+                       <span className="text-xs font-mono text-gray-400">SYNC ACTIVE</span>
                     </div>
-                    <div className="flex flex-col items-center px-4 border-l border-white/10">
-                      <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Trust Score</span>
-                      <span className="text-2xl font-mono font-bold" style={{ color: getSparkColor(selectedNode.score) }}>
-                        {selectedNode.score.toFixed(1)}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-[200px] max-w-[400px] h-[50px] ml-4">
-                      {sparkLoading ? (
-                        <div className="w-full h-full bg-white/[0.03] rounded animate-pulse" />
-                      ) : sparkData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.4} />
-                                <stop offset="100%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.02} />
-                              </linearGradient>
-                            </defs>
-                            <Area
-                              type="monotone"
-                              dataKey="trust_score"
-                              stroke={getSparkColor(selectedNode.score)}
-                              strokeWidth={1.5}
-                              fill="url(#sparkGrad)"
-                              isAnimationActive={false}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-600 font-mono text-[10px]">No history</div>
-                      )}
-                    </div>
-                    <span className="text-[10px] font-mono text-gray-500 ml-2">6h history</span>
                   </div>
-                  <button
-                    onClick={() => setSelectedNode(null)}
-                    className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex-1 w-full relative bg-gradient-to-br from-transparent to-black/30 min-h-[300px]">
+                    <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} />
+                  </div>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
-          {/* Right Side Stack: Timeline & Logs */}
-          <div className="lg:col-span-1 flex flex-col gap-6">
-             <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden ring-1 ring-white/5 flex-1 min-h-[250px]">
-               <div className="p-4 border-b border-white/5 bg-black/40 z-10">
-                 <h2 className="font-semibold text-sm text-gray-200 tracking-widest uppercase">Trust Score Trajectory</h2>
-               </div>
-               <div className="flex-1 w-full p-4 relative bg-gradient-to-br from-transparent to-black/30">
-                 <TrustScoreTimeline />
-               </div>
-             </div>
+                {/* Sparkline Panel — appears below topology map on node click */}
+                <AnimatePresence>
+                  {selectedNode && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10, height: 0 }}
+                      animate={{ opacity: 1, y: 0, height: 'auto' }}
+                      exit={{ opacity: 0, y: -10, height: 0 }}
+                      transition={{ duration: 0.3, ease: 'easeOut' }}
+                      className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5"
+                    >
+                      <div className="p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Selected Device</span>
+                            <span className="text-lg font-mono font-bold text-white tracking-tight">{selectedNode.id}</span>
+                          </div>
+                          <div className="flex flex-col items-center px-4 border-l border-white/10">
+                            <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Trust Score</span>
+                            <span className="text-2xl font-mono font-bold" style={{ color: getSparkColor(trustScores[selectedNode.id] ?? selectedNode.score) }}>
+                              {(trustScores[selectedNode.id] ?? selectedNode.score).toFixed(1)}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-[200px] max-w-[400px] h-[50px] ml-4">
+                            {sparkLoading ? (
+                              <div className="w-full h-full bg-white/[0.03] rounded animate-pulse" />
+                            ) : sparkData.length > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                                  <defs>
+                                    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.4} />
+                                      <stop offset="100%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.02} />
+                                    </linearGradient>
+                                  </defs>
+                                  <Area
+                                    type="monotone"
+                                    dataKey="trust_score"
+                                    stroke={getSparkColor(selectedNode.score)}
+                                    strokeWidth={1.5}
+                                    fill="url(#sparkGrad)"
+                                    isAnimationActive={false}
+                                  />
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-600 font-mono text-[10px]">No history</div>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-gray-500 ml-2">6h history</span>
+                        </div>
+                        <button
+                          onClick={handleCloseSparkline}
+                          className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </Panel>
 
-             {/* WebSocket Event Log */}
-             <div className="bg-[#020617] border border-white/[0.08] rounded-2xl flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden ring-1 ring-white/5 h-[150px]">
-               <div className="p-3 border-b border-white/5 bg-black/40 z-10">
-                 <h2 className="font-semibold text-xs text-gray-400 tracking-widest uppercase">Event Logs</h2>
-               </div>
-               <div id="ws-logs-container" className="flex-1 p-4 font-mono text-xs space-y-2 overflow-y-auto">
-                  <div className="text-gray-500">Listening to socket.io...</div>
-               </div>
-             </div>
-          </div>
+            <PanelResizeHandle className="w-2 hover:bg-[#3edcff]/20 transition-colors cursor-col-resize flex flex-col justify-center items-center group z-50">
+              <div className="w-1 h-8 bg-white/10 group-hover:bg-[#3edcff] rounded-full transition-colors" />
+            </PanelResizeHandle>
 
+            {/* Right Side Stack: Timeline & Logs */}
+            <Panel defaultSize={25} minSize={15}>
+              <div className="h-full flex flex-col gap-6 pl-3">
+                 <div className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden ring-1 ring-white/5 flex-1 min-h-[250px]">
+                   <div className="p-4 border-b border-white/5 bg-black/40 z-10">
+                     <h2 className="font-semibold text-sm text-gray-200 tracking-widest uppercase">Trust Score Trajectory</h2>
+                   </div>
+                   <div className="flex-1 w-full p-4 relative bg-gradient-to-br from-transparent to-black/30">
+                     <TrustScoreTimeline />
+                   </div>
+                 </div>
+
+                 {/* WebSocket Event Log */}
+                 <div className="bg-[#020617] border border-white/[0.08] rounded-2xl flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden ring-1 ring-white/5 h-[150px]">
+                   <div className="p-3 border-b border-white/5 bg-black/40 z-10">
+                     <h2 className="font-semibold text-xs text-gray-400 tracking-widest uppercase">Event Logs</h2>
+                   </div>
+                   <div id="ws-logs-container" className="flex-1 p-4 font-mono text-xs space-y-2 overflow-y-auto">
+                      <div className="text-gray-500">Listening to socket.io...</div>
+                   </div>
+                 </div>
+              </div>
+            </Panel>
+          </PanelGroup>
         </div>
 
         {/* Bottom Alert Queue */}

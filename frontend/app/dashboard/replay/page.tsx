@@ -1,7 +1,7 @@
 'use client';
 
 import { PlaySquare, FastForward, Play, Pause, Activity, RotateCcw, Crosshair } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
 
 export default function ReplayPage() {
@@ -105,7 +105,7 @@ export default function ReplayPage() {
           <div className="text-sm font-bold border-b border-[#1e293b] pb-2 text-gray-300">Raw Flow Replay Capture</div>
           
           <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
-            {[...Array(8)].map((_, i) => (
+            {[2841, 4102, 1537, 4998, 3276, 1024, 2190, 3801].map((bytes, i) => (
               <div key={i} className={`p-3 rounded-md text-xs font-mono border ${i === 3 ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-[#111827] border-[#1e293b] text-gray-400'}`}>
                 <div className="flex justify-between mb-1">
                   <span>10.0.1.44:50932</span>
@@ -114,7 +114,7 @@ export default function ReplayPage() {
                 </div>
                 <div className="flex justify-between text-gray-600">
                   <span>TCP</span>
-                  <span>{1024 + Math.random() * 5000 | 0} B</span>
+                  <span>{bytes} B</span>
                   <span>{i===3 ? 'ANOMALY_SIG_T' : 'CLEAN'}</span>
                 </div>
               </div>

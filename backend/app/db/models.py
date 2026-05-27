@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Boolean, DateTime
+from sqlalchemy import Column, String, Float, Boolean, DateTime, JSON
 from app.db.postgres import Base
 
 class Alert(Base):
@@ -17,6 +17,7 @@ class Alert(Base):
     if_score = Column(Float, nullable=False)
     lstm_score = Column(Float, nullable=False)
     gnn_score = Column(Float, nullable=False)
+    tib = Column(JSON, nullable=True)
     
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     is_resolved = Column(Boolean, default=False)

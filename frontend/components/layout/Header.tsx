@@ -1,17 +1,35 @@
-import { Bell, Search, User } from 'lucide-react';
+import { Bell, Search, User, Menu, PanelLeftOpen } from 'lucide-react';
 
-export default function Header() {
+export default function Header({ 
+  toggleSidebar, 
+  isSidebarCollapsed 
+}: { 
+  toggleSidebar?: () => void; 
+  isSidebarCollapsed?: boolean;
+}) {
   return (
-    <header className="h-16 flex items-center justify-between px-6 border-b border-[#1e293b] bg-[#070b14]/90 backdrop-blur top-0 sticky z-50">
+    <header className="h-16 flex items-center justify-between px-6 border-b border-[#1e293b] bg-[#070b14]/90 backdrop-blur top-0 sticky z-50 w-full">
       
-      {/* Search Bar */}
-      <div className="relative w-64 md:w-96 text-gray-400">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2" size={18} />
-        <input 
-          type="text" 
-          placeholder="Search devices, alerts, or queries (NLP)"
-          className="w-full bg-[#111827] border border-[#1e293b] rounded-full py-1.5 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-[#3edcff]/50 focus:ring-1 focus:ring-[#3edcff]/50 transition-all font-ui"
-        />
+      <div className="flex items-center gap-4">
+        {/* Toggle Button for zero-width recovery */}
+        {toggleSidebar && (
+          <button 
+            onClick={toggleSidebar} 
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={20} /> : <Menu size={20} />}
+          </button>
+        )}
+
+        {/* Search Bar */}
+        <div className="relative w-48 md:w-96 text-gray-400">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2" size={18} />
+          <input 
+            type="text" 
+            placeholder="Search devices, alerts, or queries (NLP)"
+            className="w-full bg-[#111827] border border-[#1e293b] rounded-full py-1.5 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-[#3edcff]/50 focus:ring-1 focus:ring-[#3edcff]/50 transition-all font-ui"
+          />
+        </div>
       </div>
 
       {/* Toggles / User Actions */}

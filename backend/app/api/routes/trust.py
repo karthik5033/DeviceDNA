@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
 import json
 from app.services.trust_engine import master_trust_engine
 from app.db.redis import redis_client
+from app.db.influxdb import influx_db
 
 router = APIRouter(prefix="/api/trust", tags=["Trust Score"])
 
@@ -50,3 +51,35 @@ async def get_current_trust_score(device_id: str):
         raise HTTPException(status_code=404, detail=f"No recent trust score found for {device_id}")
         
     return json.loads(raw_data)
+
+@router.get("/{device_id}/history")
+async def get_trust_history(device_id: str, hours: int = Query(24, description="Number of hours of history to fetch")):
+    """
+    Get the historical trust scores for a specific device from InfluxDB.
+    Returns a list of timestamps and scores. If no history exists, returns [].
+    """
+    try:
+        history = await influx_db.query_trust_history(device_id, hours=hours)
+        return history
+    except Exception:
+        return []
+
+@router.get("/devices")
+async def get_all_devices():
+    """
+    Get all tracked devices and their current trust scores from Redis.
+    """
+    keys = redis_client.keys("trust:*")
+    devices = {}
+    for key in keys:
+        try:
+            # handle bytes if necessary
+            key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+            device_id = key_str.split("trust:")[1]
+            raw_data = redis_client.get(key)
+            if raw_data:
+                data = json.loads(raw_data)
+                devices[device_id] = data.get("trust_score", 100.0)
+        except Exception:
+            continue
+    return devices

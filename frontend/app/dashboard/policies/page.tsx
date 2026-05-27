@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Search, BrainCircuit, Code, Play, CheckCircle2, ShieldOff, Sparkles } from 'lucide-react';
 
-const MOCK_POLICIES = [
+const INITIAL_POLICIES = [
   { id: 'NLP-01', text: 'Alert if any device attempts to connect to an IP outside the subnet after midnight.', status: 'active', matchCount: 14, lastMatched: '2h ago', risk: 'High' },
   { id: 'NLP-02', text: 'Thermostats must never transmit more than 5MB of data in a 5 minute interval.', status: 'active', matchCount: 0, lastMatched: 'Never', risk: 'Critical' },
   { id: 'NLP-03', text: 'Block the IP Camera SIM-0012 from speaking to any other camera on the LAN.', status: 'inactive', matchCount: 3, lastMatched: '1d ago', risk: 'Medium' },
@@ -14,31 +14,84 @@ export default function NLPPoliciesPage() {
   const [query, setQuery] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationResult, setTranslationResult] = useState<any>(null);
+  const [policies, setPolicies] = useState(INITIAL_POLICIES);
+  const [isDeploying, setIsDeploying] = useState(false);
 
-  const simulateTranslation = () => {
+  const handleTranslation = async () => {
     if (!query) return;
     setIsTranslating(true);
     setTranslationResult(null);
     
-    // Fake the BERT translation delay
-    setTimeout(() => {
-        setIsTranslating(false);
-        setTranslationResult({
-          intent: "BLOCK_BEHAVIOR",
-          entities: {
-              device_class: "Thermostat",
-              action: "UPLOAD_BYTES",
-              threshold: "5000000", // 5MB
-              timeframe: "300s"
-          },
-          confidence: "98.4%",
-          generatedRule: `IF dev_class == 'thermostat' AND upload_bytes_5m > 5000000 THEN ACTION=BLOCK_AND_ALERT`
-        });
-    }, 1500);
+    try {
+      const response = await fetch('http://localhost:8000/api/policy/parse', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ statement: query }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to parse policy statement.');
+      }
+      
+      const data = await response.json();
+      
+      const timePart = data.time_constraint ? ` AND time_constraint == '${data.time_constraint}'` : '';
+      const generatedRule = `IF device_class == '${data.device_class}' AND ${data.condition}${timePart} THEN ACTION=${data.action.toUpperCase()} (SEVERITY=${data.severity})`;
+      
+      setTranslationResult({
+        intent: data.intent.toUpperCase(),
+        entities: {
+          device_class: data.device_class,
+          condition: data.condition,
+          time_constraint: data.time_constraint,
+          severity: data.severity,
+          action: data.action
+        },
+        confidence: `${(data.parse_confidence * 100).toFixed(0)}%`,
+        generatedRule: generatedRule,
+        natural_language_rule: data.natural_language_rule
+      });
+    } catch (error) {
+      console.error(error);
+      setTranslationResult({
+        intent: "ERROR",
+        entities: {
+          error: "Could not connect to NLP parser backend."
+        },
+        confidence: "0%",
+        generatedRule: "FAILED TO COMPILE",
+        natural_language_rule: "The NLP parsing service encountered an error."
+      });
+    } finally {
+      setIsTranslating(false);
+    }
   }
 
+  const handleDeploy = () => {
+    if (!translationResult) return;
+    setIsDeploying(true);
+    
+    setTimeout(() => {
+      const newPolicy = {
+        id: `NLP-0${policies.length + 1}`,
+        text: translationResult.natural_language_rule || query,
+        status: 'active',
+        matchCount: 0,
+        lastMatched: 'Never',
+        risk: translationResult.entities?.severity === 'CRITICAL' ? 'Critical' : translationResult.entities?.severity === 'MEDIUM' ? 'Medium' : 'High'
+      };
+      
+      setPolicies([newPolicy, ...policies]);
+      setIsDeploying(false);
+      setTranslationResult(null);
+      setQuery('');
+    }, 800);
+  };
+
   return (
-    <div className="flex flex-col gap-6 max-w-[1600px] mx-auto fade-in h-[calc(100vh-100px)]">
+    <div className="flex flex-col gap-6 max-w-[1600px] mx-auto fade-in h-[calc(100vh-80px)] pb-6">
       
       {/* Policy Engine Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -54,7 +107,7 @@ export default function NLPPoliciesPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 flex-1 overflow-hidden">
         
         {/* Left Side: The Interactive Prompt Pane */}
-        <div className="flex flex-col gap-4 bg-[#111827] border border-[#1e293b] rounded-xl p-6 shadow-xl relative overflow-hidden group">
+        <div className="flex flex-col gap-4 bg-[#111827] border border-[#1e293b] rounded-xl p-6 shadow-xl relative overflow-hidden group min-h-0">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#3edcff] to-blue-600 shadow-[0_0_15px_#3edcff] pointer-events-none" />
           
           <h2 className="text-lg font-bold text-gray-200 flex items-center gap-2 mb-2">
@@ -69,7 +122,7 @@ export default function NLPPoliciesPage() {
           />
 
           <button 
-             onClick={simulateTranslation}
+             onClick={handleTranslation}
              disabled={!query || isTranslating}
              className="ml-auto px-6 py-2 bg-[#3edcff] hover:bg-blue-500 text-[#070b14] rounded-lg font-bold shadow-[0_0_15px_#3edcff]/50 hover:shadow-[0_0_20px_#3edcff] transition-all duration-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -77,7 +130,7 @@ export default function NLPPoliciesPage() {
           </button>
 
           {/* Result Block */}
-          <div className={`mt-2 transition-all duration-500 flex-1 overflow-y-auto custom-scrollbar pr-2 ${translationResult ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+          <div className={`mt-2 transition-all duration-500 flex-1 overflow-y-auto custom-scrollbar pr-2 min-h-0 ${translationResult ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
              {translationResult && (
                <div className="bg-[#070b14] border border-green-500/30 rounded-lg p-5">
                  <div className="flex justify-between items-center mb-4 border-b border-[#1e293b] pb-2">
@@ -98,6 +151,13 @@ export default function NLPPoliciesPage() {
                     </div>
                  </div>
 
+                 {translationResult.natural_language_rule && (
+                     <div className="bg-[#111827] border border-[#1e293b] p-3 rounded mb-4">
+                       <span className="text-xs text-gray-400 block mb-1">Natural Language Confirmation:</span>
+                       <span className="text-gray-300 text-sm italic">&ldquo;{translationResult.natural_language_rule}&rdquo;</span>
+                     </div>
+                 )}
+
                  <div className="bg-[#111827] border border-[#1e293b] p-4 rounded-lg relative group mt-6 mb-4 max-w-full">
                     <span className="absolute -top-3 left-4 bg-[#111827] px-2 text-xs text-gray-500 font-mono flex items-center gap-1"><Code size={12}/> Compiled Rule</span>
                     <div className="overflow-x-auto custom-scrollbar pb-2 w-full pt-2">
@@ -107,8 +167,16 @@ export default function NLPPoliciesPage() {
                     </div>
                  </div>
 
-                 <button className="w-full mt-4 py-3 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/50 rounded-lg text-sm font-bold transition-colors flex justify-center items-center gap-2">
-                    <Play size={16} /> Deploy Policy to Live Tracking
+                 <button 
+                    onClick={handleDeploy}
+                    disabled={isDeploying}
+                    className="w-full mt-4 py-3 bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/50 rounded-lg text-sm font-bold transition-colors flex justify-center items-center gap-2 disabled:opacity-50"
+                 >
+                    {isDeploying ? (
+                      <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div> Deploying...</span>
+                    ) : (
+                      <><Play size={16} /> Deploy Policy to Live Tracking</>
+                    )}
                  </button>
                </div>
              )}
@@ -127,7 +195,7 @@ export default function NLPPoliciesPage() {
            </div>
 
            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-             {MOCK_POLICIES.map((policy) => (
+             {policies.map((policy) => (
                <div key={policy.id} className="bg-[#070b14] border border-[#1e293b] rounded-lg p-4 hover:border-[#334155] transition-colors relative">
                  <div className="flex justify-between items-start mb-2">
                    <div className="flex items-center gap-2">

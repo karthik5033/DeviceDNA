@@ -43,24 +43,50 @@ export default function PredictiveRiskPage() {
         </div>
         
         {/* Right side LSTM Forecasting Pane */}
-        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 flex flex-col shadow-lg hover:border-[#334155] transition-colors relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10">
-             <BrainCircuit size={100} />
+        <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-8 flex flex-col shadow-lg hover:border-[#334155] transition-all relative overflow-hidden group">
+          <div className="absolute -top-4 -right-4 p-4 opacity-5 text-[#3edcff] transition-transform duration-700 group-hover:scale-110">
+             <BrainCircuit size={160} strokeWidth={1} />
           </div>
 
-          <h2 className="text-lg font-semibold text-gray-200 mb-4 flex items-center gap-2 relative z-10">
-            <ShieldCheck className="text-green-500 mb-0.5" />
+          <h2 className="text-xl font-bold text-gray-100 mb-5 flex items-center gap-3 relative z-10 tracking-tight">
+            <ShieldCheck className="text-[#3edcff] w-6 h-6" />
             LSTM AI Forecasting
           </h2>
-          <p className="text-sm text-gray-400 mb-6 leading-relaxed relative z-10">
-            The Multi-Dimensional <span className="text-[#3edcff] font-semibold">Long Short-Term Memory (LSTM)</span> recurrent neural network continuously predicts the subsequent state of telemetry vectors. <br/><br/>
-            When live data diverges radically from the 12-hour predicted sequence, anomalous threat events are probabilistically isolated prior to complete infiltration.
-          </p>
+          <div className="space-y-4 text-sm text-gray-400 leading-relaxed relative z-10">
+            <p>
+              The Multi-Dimensional <span className="text-gray-200 font-medium">Long Short-Term Memory (LSTM)</span> recurrent neural network continuously predicts the subsequent state of telemetry vectors.
+            </p>
+            <p>
+              When live data diverges radically from the 12-hour predicted sequence, anomalous threat events are probabilistically isolated prior to complete infiltration.
+            </p>
+          </div>
 
-          <div className="flex-1 mt-auto border border-dashed border-[#334155] bg-[#070b14]/50 rounded-lg flex flex-col items-center justify-center text-gray-500 font-mono text-sm p-4 text-center leading-loose relative z-10 group">
-             <Activity className="w-8 h-8 text-[#3edcff] mb-3 animate-pulse opacity-50 group-hover:opacity-100 transition-opacity" />
-             Active Forecasting Sequence<br/>
-             <span className="text-xs text-yellow-500">Tracking (14-Dim) Vectors...</span>
+          <div className="mt-8 bg-[#070b14] border border-[#1e293b] rounded-xl p-5 relative z-10 overflow-hidden shadow-inner group/chart">
+             {/* Glowing accent line */}
+             <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#3edcff]/50 to-transparent" />
+             
+             <div className="flex justify-between items-start mb-6">
+               <div>
+                 <div className="text-[#3edcff] font-mono text-[10px] uppercase tracking-widest mb-1.5 flex items-center gap-2">
+                   <div className="w-1.5 h-1.5 rounded-full bg-[#3edcff] shadow-[0_0_5px_#3edcff] animate-pulse" />
+                   Active Forecasting Sequence
+                 </div>
+                 <div className="text-gray-300 font-semibold text-sm">Tracking (14-Dim) Vectors</div>
+               </div>
+               <Activity className="w-5 h-5 text-[#3edcff] opacity-70 group-hover/chart:opacity-100 transition-opacity" />
+             </div>
+
+             {/* Fake mock graph bars */}
+             <div className="flex items-end justify-between h-16 gap-1.5">
+                {[30, 45, 25, 60, 40, 85, 55, 35, 75, 45, 90, 65].map((h, i) => (
+                  <div key={i} className="w-full bg-[#1e293b]/50 rounded-t-[2px] relative overflow-hidden" style={{ height: '100%' }}>
+                     <div 
+                       className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#3edcff]/80 to-[#3edcff] rounded-t-[2px] transition-all duration-1000 ease-in-out opacity-80 group-hover/chart:opacity-100 group-hover/chart:animate-pulse" 
+                       style={{ height: `${h}%`, animationDelay: `${i * 100}ms` }}
+                     ></div>
+                  </div>
+                ))}
+             </div>
           </div>
         </div>
       </div>

@@ -271,27 +271,48 @@ export default function AlertsPage() {
               <Eye className="text-[#3edcff]" /> Threat Context {selectedAlert && `(${selectedAlert.id})`}
             </h2>
             
-            <p className="text-sm text-gray-400 mb-6 italic leading-relaxed">
+            <p className="text-sm text-gray-400 mb-6 italic leading-relaxed h-16">
               {selectedAlert ? 
-                 `SHAP has analyzed ${selectedAlert.device} behavior against baseline parameters. High likelihood of mathematical drift associated with ${selectedAlert.type}. Action recommended.`
+                 `SHAP has analyzed ${selectedAlert.device_id || selectedAlert.device} behavior against baseline parameters. High likelihood of mathematical drift associated with ${selectedAlert.alert_type || selectedAlert.type}. Action recommended.`
                : 
                  `Select an alert from the queue to run the SHAP Explainable AI explainer algorithm. SHAP will deconstruct the neural network's decision boundary.`
               }
             </p>
             
-            <div className="border border-dashed border-[#1e293b] bg-[#070b14]/50 rounded-lg h-48 flex flex-col items-center justify-center text-gray-600 space-y-3 p-4 text-center">
+            <div className="border border-dashed border-[#1e293b] bg-[#070b14]/50 rounded-lg min-h-56 flex flex-col items-center justify-center text-gray-600 p-4 text-center">
               {selectedAlert ? (
                  <div className="text-left w-full h-full text-xs font-mono flex flex-col justify-between">
-                    <div><span className="text-red-400">Bytes Out:</span> 9.2MB <span className="text-gray-500">(+340% Baseline)</span></div>
-                    <div><span className="text-orange-400">Dst Port:</span> 443 <span className="text-gray-500">(Unseen internally)</span></div>
-                    <div><span className="text-yellow-400">Conn. Duration:</span> 4h 12m <span className="text-gray-500">(Persistent)</span></div>
-                    <div className="text-[#3edcff] font-bold mt-4 pt-2 border-t border-[#1e293b]">SHAP Confidence: 94.2%</div>
+                    <div className="flex-1 space-y-2.5 overflow-y-auto pr-1">
+                       {selectedAlert.tib?.evidence_list?.slice(0, 3).map((evidence: string, idx: number) => {
+                          const colors = ["text-red-400", "text-orange-400", "text-yellow-400"];
+                          const parts = evidence.split('—');
+                          const metric = parts[0].trim();
+                          const desc = parts.length > 1 ? parts[1].trim() : "";
+                          return (
+                            <div key={idx} className="bg-[#111827] border border-[#1e293b] p-2 rounded-md shadow-inner">
+                               <div className={colors[idx % colors.length]}>{metric}</div>
+                               {desc && <div className="text-gray-500 mt-1 leading-snug">{desc}</div>}
+                            </div>
+                          );
+                       })}
+                       {(!selectedAlert.tib?.evidence_list || selectedAlert.tib.evidence_list.length === 0) && (
+                         <div className="text-gray-500 text-center mt-6 py-4 border border-[#1e293b] rounded-md bg-[#111827]/50">No specific SHAP evidence extracted.</div>
+                       )}
+                    </div>
+                    <div className="text-[#3edcff] font-bold mt-4 pt-3 border-t border-[#1e293b] flex justify-between items-center bg-[#070b14]">
+                      <span>SHAP Confidence:</span>
+                      <span className="text-lg">
+                        {selectedAlert.tib?.confidence_score 
+                          ? (selectedAlert.tib.confidence_score * 100).toFixed(1) 
+                          : (((selectedAlert.vae_score || 0) + (selectedAlert.if_score || 0)) / 2 * 100).toFixed(1)}%
+                      </span>
+                    </div>
                  </div>
               ) : (
-                 <>
+                 <div className="flex flex-col items-center space-y-3">
                    <RefreshCcw size={24} className="animate-spin duration-[3000ms]" />
                    <span className="text-xs font-mono">Awaiting Alert Selection...</span>
-                 </>
+                 </div>
               )}
             </div>
             

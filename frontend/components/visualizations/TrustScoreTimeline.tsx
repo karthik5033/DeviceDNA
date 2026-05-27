@@ -16,28 +16,31 @@ export default function TrustScoreTimeline() {
        transports: ['websocket'],
     });
 
+    const latestScores = new Map<string, number>();
+    let lastTick = Math.floor(Date.now() / 1000);
+
     socket.on('trust_update', (msg) => {
+        if (!msg.device_id || msg.score === undefined) return;
+        latestScores.set(msg.device_id, msg.score);
+        
         const now = Date.now();
         const currentSec = Math.floor(now / 1000);
         
-        if (currentSec > batchRef.current.currentSecond) {
-            // Flush the old batch to state
-            if (batchRef.current.scores.length > 0) {
-                const avgScore = batchRef.current.scores.reduce((a, b) => a + b, 0) / batchRef.current.scores.length;
-                const timeStr = new Date(batchRef.current.currentSecond * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (currentSec > lastTick) {
+            if (latestScores.size > 0) {
+                let sum = 0;
+                latestScores.forEach(score => sum += score);
+                const globalAvg = sum / latestScores.size;
+                
+                const timeStr = new Date(currentSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 
                 setData(prev => {
-                    const newData = [...prev, { time: timeStr, score: avgScore, threshold: 60 }];
-                    // Keep maximum of 60 points rolling window
+                    const newData = [...prev, { time: timeStr, score: globalAvg, threshold: 60 }];
                     if (newData.length > 60) return newData.slice(newData.length - 60);
                     return newData;
                 });
             }
-            // Reset for the new second
-            batchRef.current = { scores: [msg.score], currentSecond: currentSec };
-        } else {
-            // Accumulate in current second
-            batchRef.current.scores.push(msg.score);
+            lastTick = currentSec;
         }
     });
 
