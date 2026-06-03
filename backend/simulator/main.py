@@ -1,16 +1,54 @@
 import asyncio
 import json
 import logging
+import os
 from aiokafka import AIOKafkaProducer
-from simulator.traffic_generator import generate_batch
+from simulator.traffic_generator import generate_batch, ACTIVE_RESTRICTIONS
+from simulator.device_profiles import FLEET
 from simulator.attack_scenarios import AttackScenarios
+from app.db.redis import redis_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-import os
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
+MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
 TOPIC_NAME = "raw-flows"
+
+# ── Simulated ESP32 MQTT Listener ─────────────────────────────────────────────
+def run_mqtt_listener():
+    try:
+        import paho.mqtt.client as mqtt
+        client = mqtt.Client(client_id="devicedna_simulator_actuator")
+        
+        def on_connect(client, userdata, flags, rc):
+            logger.info(f"Simulator MQTT Actuator connected with result code {rc}")
+            client.subscribe("devicedna/+/command")
+            
+        def on_message(client, userdata, msg):
+            try:
+                payload = json.loads(msg.payload.decode('utf-8'))
+                d_id = payload.get("device_id")
+                action = payload.get("action")
+                relay_open = payload.get("relay_open", False)
+                
+                if action == "quarantine" or (action == "isolate" or relay_open):
+                    logger.warning(f"🔒 [ESP32 Sim-Hardware] DEVICE {d_id} RELAY GPIO 26: OPENED (Traffic cut-off). Status: QUARANTINED.")
+                elif action == "rate_limit":
+                    logger.warning(f"⚠️ [ESP32 Sim-Hardware] DEVICE {d_id} RELAY GPIO 26: CLOSED. Status: RATE LIMITED (Throttling traffic).")
+                elif action == "recover":
+                    logger.info(f"🟢 [ESP32 Sim-Hardware] DEVICE {d_id} RELAY GPIO 26: CLOSED. Status: RECOVERED & RESTORED.")
+            except Exception as e:
+                pass
+                
+        client.on_connect = on_connect
+        client.on_message = on_message
+        client.connect(MQTT_HOST, 1883, 60)
+        client.loop_start()
+        return client
+    except Exception as e:
+        logger.warning(f"Could not start MQTT actuator listener (paho-mqtt missing or broker offline): {e}")
+        return None
 
 async def stream_telemetry():
     """
@@ -18,6 +56,9 @@ async def stream_telemetry():
     Starts generating normal batches of 100 flows every second, producing them to Kafka.
     """
     logger.info(f"Initializing DeviceDNA Telemetry Simulator targeting {KAFKA_BROKER}...")
+    
+    # Start the background MQTT subscriber
+    mqtt_client = run_mqtt_listener()
     
     producer = AIOKafkaProducer(
         bootstrap_servers=KAFKA_BROKER,
@@ -47,6 +88,19 @@ async def stream_telemetry():
         while True:
             cycle_count += 1
             
+            # Sync active restrictions from Redis
+            try:
+                for d in FLEET:
+                    d_id = d['id']
+                    ACTIVE_RESTRICTIONS[d_id] = {
+                        "isolated": redis_client.exists(f"response:isolated:{d_id}") == 1,
+                        "rate_limited": redis_client.exists(f"response:rate_limit:{d_id}") == 1,
+                        "sandboxed": redis_client.exists(f"response:sandboxed:{d_id}") == 1,
+                        "honeypot": redis_client.exists(f"response:honeypot:{d_id}") == 1,
+                    }
+            except Exception as redis_err:
+                logger.error(f"Failed to sync restrictions from Redis: {redis_err}")
+            
             # Generate 100 normal flows
             flows = generate_batch(100)
             
@@ -72,6 +126,8 @@ async def stream_telemetry():
         logger.info("Simulator halted.")
     finally:
         await producer.stop()
+        if mqtt_client:
+            mqtt_client.loop_stop()
         logger.info("Kafka producer stopped.")
 
 if __name__ == "__main__":

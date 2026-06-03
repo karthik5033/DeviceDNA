@@ -13,11 +13,12 @@ from app.ml.vae.model import DeviceVAE, vae_loss_function
 from simulator.device_profiles import FLEET
 from simulator.traffic_generator import generate_flow
 from app.services.feature_extraction import extract_features
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = "models_trained/"
+MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models_trained")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 # Try using the RTX 4060 if available, else fallback to CPU
@@ -53,13 +54,34 @@ def normalize_dataset(data: torch.Tensor):
     normalized = (data - mins) / ranges
     return normalized, mins, maxs
 
-def train_device_twin(dev: dict, epochs: int = 50, batch_size: int = 64):
+async def train_device_twin(dev: dict, influx_db, epochs: int = 50, batch_size: int = 64):
     """
     Train a specialized VAE network strictly on the specific normal baseline 
     dataset of a single endpoint IoT device.
     """
-    logger.info(f"Generating synthetic baseline for {dev['name']} ({dev['id']})...")
-    baseline_tensors = generate_baseline_dataset(dev)
+    if dev.get('is_physical'):
+        logger.info(f"Fetching OBSERVED historical baseline for physical {dev['name']} ({dev['id']})...")
+        observed_history = await influx_db.query_feature_history(dev['id'], days=7)
+        if len(observed_history) < 50:
+            logger.warning(f"Not enough historical data ({len(observed_history)} records). Falling back to synthetic baseline.")
+            baseline_tensors = generate_baseline_dataset(dev)
+        else:
+            # Convert dictionary list to Tensor list
+            tensor_list = []
+            for record in observed_history:
+                # Must match 14D feature extraction order
+                features = [
+                    record['total_flows'], record['total_bytes'], record['total_packets'],
+                    record['avg_packet_size'], record['avg_duration_ms'], record['tcp_ratio'],
+                    record['udp_ratio'], record['http_ratio'], record['https_ratio'],
+                    record['dns_ratio'], record['other_ratio'], record['unique_dst_ips'],
+                    record['unique_dst_ports'], record['external_ratio']
+                ]
+                tensor_list.append(features)
+            baseline_tensors = torch.FloatTensor(tensor_list)
+    else:
+        logger.info(f"Generating SYNTHETIC baseline for virtual {dev['name']} ({dev['id']})...")
+        baseline_tensors = generate_baseline_dataset(dev)
     
     # Normalize to [0, 1] to prevent gradient explosion
     normalized_data, mins, maxs = normalize_dataset(baseline_tensors)
@@ -104,15 +126,23 @@ def train_device_twin(dev: dict, epochs: int = 50, batch_size: int = 64):
     final_loss = train_loss / len(dataloader.dataset)
     logger.info(f"Compiled Twin {dev['id']} -> {save_path} (Final Loss: {final_loss:.4f})")
 
-if __name__ == "__main__":
+async def main():
+    from app.db.influxdb import InfluxDBService
+    influx_db = InfluxDBService()
+    
     logger.info(f"Beginning VAE Digital Twin Training Engine. Target Device: {device}")
     
     # Train Digital Twins for all 50 simulated devices in our fleet
     try:
         for idx, dev in enumerate(FLEET):
             logger.info(f"Training Progress: Twin {idx + 1} / {len(FLEET)}")
-            train_device_twin(dev, epochs=20) # Keep low for fast dev iteration
+            await train_device_twin(dev, influx_db, epochs=20) # Keep low for fast dev iteration
             
         logger.info("✅ All 50 Digital Twins Successfully Trained.")
     except KeyboardInterrupt:
         logger.warning("Training halted natively.")
+    finally:
+        await influx_db.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())

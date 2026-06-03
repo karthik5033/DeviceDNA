@@ -17,7 +17,7 @@ from app.services.feature_extraction import extract_features
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = "models_trained/"
+MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models_trained")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -97,7 +97,7 @@ def train_specialist(class_name: str, epochs: int = 25, batch_size: int = 64):
     # Save specialized weights
     model_path = os.path.join(MODELS_DIR, f"gmvae_specialist_{class_name}.pt")
     torch.save(model.state_dict(), model_path)
-    logger.info(f"✅ Specialist GMVAE for {class_name} saved to {model_path}\n")
+    logger.info(f"[OK] Specialist GMVAE for {class_name} saved to {model_path}\n")
 
 if __name__ == "__main__":
     # Train specialists across all 6 classes

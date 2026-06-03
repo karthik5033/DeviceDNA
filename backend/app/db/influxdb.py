@@ -104,6 +104,44 @@ class InfluxDBService:
             logger.error(f"Failed to query trust history from InfluxDB: {e}")
             return []
 
+    async def query_feature_history(self, device_id: str, days: int = 7):
+        """Query historical 14D feature vectors for a specific device to train on observed behavior."""
+        try:
+            query = f'''
+                from(bucket: "{INFLUXDB_BUCKET}")
+                |> range(start: -{days}d)
+                |> filter(fn: (r) => r["_measurement"] == "device_features")
+                |> filter(fn: (r) => r["device_id"] == "{device_id}")
+                |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+            '''
+            result = await self.query_api.query(query=query, org=INFLUXDB_ORG)
+            
+            history = []
+            for table in result:
+                for record in table.records:
+                    # Collect all 14 fields
+                    features = {
+                        "total_flows": record.values.get("total_flows", 0.0),
+                        "total_bytes": record.values.get("total_bytes", 0.0),
+                        "total_packets": record.values.get("total_packets", 0.0),
+                        "avg_packet_size": record.values.get("avg_packet_size", 0.0),
+                        "avg_duration_ms": record.values.get("avg_duration_ms", 0.0),
+                        "tcp_ratio": record.values.get("tcp_ratio", 0.0),
+                        "udp_ratio": record.values.get("udp_ratio", 0.0),
+                        "http_ratio": record.values.get("http_ratio", 0.0),
+                        "https_ratio": record.values.get("https_ratio", 0.0),
+                        "dns_ratio": record.values.get("dns_ratio", 0.0),
+                        "other_ratio": record.values.get("rtsp_ratio", 0.0) + record.values.get("mqtt_ratio", 0.0) + record.values.get("hl7_ratio", 0.0) + record.values.get("modbus_ratio", 0.0),
+                        "unique_dst_ips": record.values.get("unique_dst_ips", 0.0),
+                        "unique_dst_ports": record.values.get("unique_dst_ports", 0.0),
+                        "external_ratio": record.values.get("external_ratio", 0.0)
+                    }
+                    history.append(features)
+            return history
+        except Exception as e:
+            logger.error(f"Failed to query feature history from InfluxDB: {e}")
+            return []
+
     async def close(self):
         await self.client.close()
 

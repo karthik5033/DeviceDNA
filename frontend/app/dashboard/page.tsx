@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import HITLPanel from '@/components/HITLPanel';
 
 // Pre-compute stable particle data to avoid SSR/client hydration mismatch
 type ParticleData = {
@@ -355,6 +356,8 @@ export default function DashboardOverview() {
                </div>
             </motion.div>
         )}
+
+        <HITLPanel />
 
       </div>
     </div>

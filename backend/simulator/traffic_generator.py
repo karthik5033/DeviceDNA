@@ -4,14 +4,32 @@ import uuid
 from datetime import datetime
 from simulator.device_profiles import FLEET, DEVICE_PROFILES
 
+# Local cache of active device restrictions, updated by the simulator loop
+# Structure: { device_id: { "isolated": bool, "rate_limited": bool, "sandboxed": bool, "honeypot": bool } }
+ACTIVE_RESTRICTIONS = {}
+
 def generate_flow(device):
     """
     Generate a single, realistic network flow record for a given device 
-    based on its class profile.
+    based on its class profile and active response restrictions.
     """
+    device_id = device['id']
     device_class = device['device_class']
     profile = DEVICE_PROFILES[device_class]['normal_behavior']
     
+    # Retrieve restrictions
+    res = ACTIVE_RESTRICTIONS.get(device_id, {})
+    
+    # ── Tier 4: Isolation ──
+    if res.get("isolated"):
+        return None # Zero traffic emitted
+
+    # ── Tier 2: Rate Limit ──
+    if res.get("rate_limited"):
+        # Drop 80% of traffic
+        if random.random() < 0.8:
+            return None
+
     # Select protocol based on probability distribution
     protocols = list(profile['protocols'].keys())
     probs = list(profile['protocols'].values())
@@ -25,19 +43,33 @@ def generate_flow(device):
     
     # Pick destination
     if is_external:
-        dst_ip = random.choice(device['external_peers'])
+        # ── Tier 5: Honeypot ──
+        if res.get("honeypot"):
+            dst_ip = "10.99.99.99" # Decoy Honeypot IP
+        # ── Tier 3: Sandbox ──
+        elif res.get("sandboxed"):
+            # Sandbox forces all traffic to stay local (internal peers)
+            dst_ip = random.choice(device['internal_peers'])
+        else:
+            dst_ip = random.choice(device['external_peers'])
     else:
         dst_ip = random.choice(device['internal_peers'])
     
     # Packet and byte scaling
     avg_bytes = max(100, int(random.gauss(*profile['avg_bytes_per_flow'])))
-    packet_size = random.randint(*profile['packet_size_range'])
-    packets = max(1, avg_bytes // packet_size)
+    packet_size = profile['packet_size_range']
+    # Safe check in case packet_size isn't a tuple/list
+    if isinstance(packet_size, (list, tuple)):
+        size_min, size_max = packet_size[0], packet_size[1]
+    else:
+        size_min, size_max = 64, 1500
+    p_size = random.randint(size_min, size_max)
+    packets = max(1, avg_bytes // p_size)
     
     return {
         "flow_id": str(uuid.uuid4()),
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "device_id": device['id'],
+        "device_id": device_id,
         "device_class": device_class,
         "src_ip": device['ip_address'],
         "dst_ip": dst_ip,
@@ -47,12 +79,12 @@ def generate_flow(device):
         "bytes": avg_bytes,
         "packets": packets,
         "duration_ms": random.randint(10, 5000),
-        "flags": "TCP_ACK" if protocol == "TCP" or protocol == "HTTPS" else "NONE",
+        "flags": "TCP_ACK" if protocol in ("TCP", "HTTPS") else "NONE",
         "is_anomalous": False
     }
 
 def generate_batch(size=100):
-    """Generate a batch of regular traffic flows."""
+    """Generate a batch of regular traffic flows, filtering out restricted/isolated items."""
     flows = []
     
     # Distribute flows roughly by the expected frequency in profiles
@@ -60,6 +92,8 @@ def generate_batch(size=100):
         # Pick device weighted by their average flow count
         weights = [DEVICE_PROFILES[d['device_class']]['normal_behavior']['avg_flows_per_5min'][0] for d in FLEET]
         device = random.choices(FLEET, weights=weights, k=1)[0]
-        flows.append(generate_flow(device))
+        flow = generate_flow(device)
+        if flow:
+            flows.append(flow)
         
     return flows

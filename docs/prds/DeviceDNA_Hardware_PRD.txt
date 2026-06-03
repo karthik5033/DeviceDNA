@@ -1,0 +1,1988 @@
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 1 
+ 
+ 
+ 
+DeviceDNA 
+Hardware Implementation, Network Setup & Live Demo PRD 
+Eclipse Hackathon 2025  |  4th Semester EL  |  4-Member Team  |  3-4 Week Build Plan 
+4 ESP32 Boards 46 Virtual Devices 2 Laptops Live Attacks 
+ 
+ 
+Hardware Stack 
+ESP32-CAM + ESP32 Sensor + ESP32 PIR Motion + ESP32 Gateway  |  Mobile Hotspot LAN  |  Mosquitto MQTT  |  Windows 
+11 Server 
+Last Updated: May 2026  |  Windows 10/11  |  16GB RAM Server  |  Arduino IDE C++ 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 2 
+Table of Contents 
+Part 0  —  Hardware Overview & System Architecture 
+Part 1  —  Bill of Materials (BOM) — 3-Board vs 4-Board Plans 
+Part 2  —  Circuit Diagrams — Every ESP32 Board Wired 
+Part 3  —  ESP32 Firmware Code — Full Arduino C++ 
+  3.1  Shared WiFi + MQTT Base Library 
+  3.2  ESP32-CAM Node Firmware 
+  3.3  ESP32 Temperature/Humidity Sensor Firmware 
+  3.4  ESP32 PIR Motion Sensor Firmware 
+  3.5  ESP32 Gateway/Smart-Plug Node Firmware  (4-board plan) 
+Part 4  —  Network Architecture — Mobile Hotspot LAN 
+Part 5  —  Server Setup — Windows 11, MQTT, Python, All Services 
+Part 6  —  Virtual Device Simulation Engine — 46 Python Async Devices 
+Part 7  —  Telemetry Pipeline — ESP32 → MQTT → Feature Engine → ML 
+Part 8  —  Attack Execution — Real Network + Behavioral Attacks 
+  8.1  Attack 1 — Stealth Reconnaissance (nmap scan) 
+  8.2  Attack 2 — Botnet C2 Beaconing 
+  8.3  Attack 3 — Lateral Movement 
+  8.4  Attack 4 — Slow Data Exfiltration 
+  8.5  Attack 5 — Coordinated Multi-Device Compromise 
+Part 9  —  Live Demo Script — Minute-by-Minute Playbook 
+Part 10 — 3-4 Week Build Roadmap — Task Assignment 
+Appendix A — Full IP/Port Reference 
+Appendix B — Troubleshooting Guide 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 3 
+Part 0 — Hardware Overview & System Architecture 
+0.1 What the Physical Setup Looks Like 
+Your physical demo consists of four zones on a table: the ESP32 board cluster (real IoT devices), the AI server 
+laptop running all ML models, the attacker laptop launching real network-layer attacks, and the dashboard display 
+showing live trust scores and graph topology. Everything connects through a single mobile hotspot acting as your 
+LAN. 
+ 
+Complete System at a Glance 
+ZONE 1 — ESP32 Cluster (IoT devices): 
+  ESP32-CAM       → simulates IP camera, streams fake RTSP telemetry via MQTT 
+  ESP32 + DHT11   → simulates temperature/humidity sensor, periodic MQTT reports 
+  ESP32 + PIR     → simulates motion detector, event-triggered MQTT bursts 
+  ESP32 + Relay   → simulates smart gateway, command/control traffic  [4-board plan only] 
+ 
+ZONE 2 — AI Server Laptop (Windows 11, 16GB RAM): 
+  Mosquitto MQTT Broker  |  FastAPI Backend  |  PyTorch ML Pipeline 
+  Global GMVAE  |  50x Per-Device VAE  |  GNN  |  LSTM  |  CUSUM  |  IF 
+  PostgreSQL  |  InfluxDB  |  React Dashboard  |  46 Virtual Device Simulator 
+ 
+ZONE 3 — Attacker Laptop (Windows 11): 
+  Python attack scripts using Scapy + socket  |  nmap  |  hping3 equivalent 
+  Behavioral mutation engine  |  Coordinated attack orchestrator 
+ 
+ZONE 4 — Display / Projector: 
+  React SOC Dashboard  |  D3 Network Graph  |  Trust Score Panel  |  Alert Feed 
+ 
+0.2 Data Flow — Physical + Virtual Together 
+End-to-End Pipeline 
+Physical ESP32s                Virtual Devices (Python asyncio) 
+     |                                    | 
+     | MQTT publish                       | MQTT publish 
+     v                                    v 
+          Mosquitto MQTT Broker (Server Laptop :1883) 
+                         | 
+                  FastAPI Consumer 
+                         | 
+              Feature Extraction (14D vector) 
+                    /          \ 
+          Global GMVAE      Per-Device VAE 
+               |                  | 
+          LSTM + CUSUM         Isolation Forest 
+               |                  | 
+             GNN (graph analysis across all 50) 
+                         | 
+                 Fusion Trust Engine 
+                    /          \ 
+           Redis Cache        InfluxDB + PostgreSQL 
+                | 
+         React Dashboard (WebSocket push) 
+                | 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 4 
+        D3 Graph  |  Trust Panel  |  Alerts  |  Latent Space 
+ 
+0.3 The 3-Board vs 4-Board Decision 
+Component 3-Board Plan (Confirmed) 4-Board Plan (If Budget Allows) 
+ESP32-CAM OV2640 Camera Node — YES Camera Node — YES 
+ESP32 Dev Board #1 DHT11 Sensor Node DHT11 Sensor Node 
+ESP32 Dev Board #2 PIR Motion Node PIR Motion Node 
+ESP32 Dev Board #3 — Smart Gateway/Relay Node 
+Virtual cameras 11 (total 12 with physical) 11 (total 12 with physical) 
+Virtual sensors 10 10 
+Demo impact Strong — 3 device classes physical Excellent — 4 device classes physical 
+Recommendation Fully sufficient for judges Get if budget permits — gateway adds 
+GNN drama 
+Budget Note 
+The 3-board plan is fully sufficient for a winning demo. 
+ESP32-CAM (~Rs 400) + 2x ESP32 Dev Board (~Rs 350 each) + sensors (~Rs 200) = ~Rs 1300 total hardware 
+cost. 
+4th ESP32 Dev Board adds ~Rs 350. Total: ~Rs 1650. Very affordable. 
+All code in this document handles BOTH plans — the 4th board simply adds one more MQTT publisher. 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 5 
+Part 1 — Bill of Materials (BOM) 
+1.1 Components Required 
+Item Qty Use Approx Cost 
+(Rs) Priority 
+ESP32-CAM OV2640 module 1 Camera node — highest 
+traffic generator 
+400-600 CRITICAL 
+ESP32 Dev Board (38-pin) 2 or 
+3 
+Sensor, motion, gateway 
+nodes 
+300-400 each CRITICAL 
+DHT11 temperature/humidity 
+sensor 
+1 Sensor node periodic 
+telemetry 
+60-80 CRITICAL 
+PIR Motion sensor (HC-SR501) 1 Motion node event bursts 70-90 CRITICAL 
+5mm RGB LED (common 
+cathode) 
+4 Trust score indicator per 
+board 
+5 each HIGH 
+5mm Red LED 4 Attack/alert indicator 3 each HIGH 
+330-ohm resistors 20 LED current limiting 1 each HIGH 
+10k-ohm resistors 5 Pull-up for DHT11, PIR 1 each HIGH 
+Relay module (5V single 
+channel) 
+1 Gateway node output [4-
+board plan] 
+50-80 OPTIONAL 
+Breadboard (half size) 3 or 
+4 
+Prototyping 50 each CRITICAL 
+Jumper wires (M-M, M-F 
+bundle) 
+1 
+set 
+Connections 80-100 CRITICAL 
+Micro-USB cables 3 or 
+4 
+Power + programming 50 each CRITICAL 
+USB power bank or USB hub 1 Power all ESP32s from one 
+source during demo 
+300-500 HIGH 
+FTDI programmer (if needed) 1 ESP32-CAM programming 
+(has no USB) 
+200-300 CRITICAL for 
+CAM 
+ 
+ESP32-CAM Important Note 
+The ESP32-CAM does NOT have a built-in USB port for programming. 
+You need an FTDI USB-to-Serial adapter (CH340 or CP2102) to flash it. 
+Connect: FTDI TX → CAM RX, FTDI RX → CAM TX, GND → GND, 5V → 5V. 
+Hold GPIO0 to GND during upload, then release for normal operation. 
+After flashing, the FTDI is removed — power via 5V from USB hub or power bank. 
+ 
+1.2 Software Requirements — Server Laptop 
+Software Version Purpose Install Command 
+Python 3.11+ All ML and backend code python.org installer 
+Node.js 18+ React dashboard build nodejs.org installer 
+Arduino IDE 2.x ESP32 firmware upload arduino.cc 
+Mosquitto MQTT 2.x MQTT broker on server mosquitto.org installer 
+Git latest Code management git-scm.com 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 6 
+Software Version Purpose Install Command 
+WSL2 (Windows 
+Subsystem Linux) 
+Ubuntu 
+22.04 
+Linux tools on Windows wsl --install in PowerShell 
+nmap 7.9+ Port scanning tool (attacker 
+laptop) 
+nmap.org 
+Wireshark optional Packet capture for demo 
+visuals 
+wireshark.org 
+ 
+1.3 Python Package Requirements 
+pip install fastapi uvicorn websockets paho-mqtt asyncio-mqtt 
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu 
+pip install numpy scikit-learn pandas influxdb-client psycopg2-binary redis 
+pip install torch-geometric  # for GNN 
+pip install shap joblib python-dotenv aiofiles 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 7 
+Part 2 — Circuit Diagrams — Every ESP32 Board Wired 
+2.1 ESP32-CAM Node — Camera Device 
+The ESP32-CAM acts as your highest-traffic device, simulating an IP camera. It does NOT need to stream real 
+video — it sends realistic camera-class telemetry over MQTT. The onboard LED serves as the trust indicator. 
+ 
+ESP32-CAM Pinout & Wiring 
+ESP32-CAM Board Connections: 
+ 
+  Power: 
+    5V pin  → USB Hub / Power Bank 5V 
+    GND pin → Common ground 
+ 
+  Programming (FTDI adapter — REMOVE after flashing): 
+    GPIO0   → GND  (hold during upload, release after) 
+    U0TXD   → FTDI RX 
+    U0RXD   → FTDI TX 
+    GND     → FTDI GND 
+    5V      → FTDI 5V 
+ 
+  RGB LED (Trust Score Indicator): 
+    GPIO 12 → 330-ohm resistor → Red LED anode 
+    GPIO 13 → 330-ohm resistor → Green LED anode 
+    GPIO 15 → 330-ohm resistor → Blue LED anode 
+    All LED cathodes → GND 
+ 
+  Note: GPIO 0, 2, 4 are used by camera — do NOT connect anything to these. 
+  The onboard flash LED is on GPIO 4. 
+ 
+  LED Colors = Trust Score: 
+    GREEN  → Trust > 70 (normal) 
+    YELLOW → Red+Green ON  → Trust 40-70 (suspicious) 
+    RED    → Trust < 40 (critical / under attack) 
+ 
+2.2 ESP32 + DHT11 Node — Temperature/Humidity Sensor Device 
+ESP32 Sensor Node Wiring 
+ESP32 Dev Board (38-pin) + DHT11 sensor: 
+ 
+  Power: 
+    3.3V pin → DHT11 pin 1 (VCC) 
+    GND      → DHT11 pin 4 (GND) 
+    Note: DHT11 works on 3.3V despite being rated 3-5V 
+ 
+  DHT11 Data Connection: 
+    GPIO 4  → DHT11 pin 2 (DATA) 
+    10k-ohm pull-up: between GPIO 4 and 3.3V 
+    (DHT11 pin 3 is NC — leave unconnected) 
+ 
+  RGB LED (Trust Score Indicator): 
+    GPIO 25 → 330-ohm → Red LED anode 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 8 
+    GPIO 26 → 330-ohm → Green LED anode 
+    GPIO 27 → 330-ohm → Blue LED anode 
+    All cathodes → GND 
+ 
+  Power supply: 
+    USB port of ESP32 → USB Hub 
+ 
+  Breadboard layout: 
+    DHT11 sits on breadboard, 3 wires to ESP32 + pull-up resistor between data and VCC rail 
+ 
+2.3 ESP32 + PIR Motion Node — Motion Detector Device 
+ESP32 PIR Node Wiring 
+ESP32 Dev Board (38-pin) + HC-SR501 PIR sensor: 
+ 
+  Power: 
+    5V pin  → PIR VCC  (PIR needs 5V, NOT 3.3V) 
+    GND     → PIR GND 
+    Note: Use the ESP32 5V pin (Vin) which is USB voltage 
+ 
+  PIR Output Connection: 
+    PIR OUT → GPIO 34 (input only pin — perfect for PIR) 
+    Note: PIR output is 3.3V logic, safe for ESP32 direct connection 
+ 
+  PIR Adjustment Pots (on HC-SR501 board): 
+    Left pot  → Sensitivity (turn clockwise for more sensitive) 
+    Right pot → Delay time (set to minimum ~3 seconds for demo) 
+ 
+  RGB LED: 
+    GPIO 25 → 330-ohm → Red 
+    GPIO 26 → 330-ohm → Green 
+    GPIO 27 → 330-ohm → Blue 
+    Cathodes → GND 
+ 
+  Extra: Red alert LED 
+    GPIO 32 → 330-ohm → Red LED → GND 
+    Blinks on motion detection AND on attack alert 
+ 
+2.4 ESP32 + Relay Node — Smart Gateway Device [4-board plan] 
+ESP32 Gateway Node Wiring 
+ESP32 Dev Board (38-pin) + 5V Relay Module: 
+ 
+  Power: 
+    5V  → Relay VCC 
+    GND → Relay GND 
+ 
+  Relay Control: 
+    GPIO 26 → Relay IN pin 
+    (Relay triggers when GPIO goes LOW — active low module) 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 9 
+  Relay Output (safe demo load — just an LED): 
+    Relay COM → 3.3V 
+    Relay NO  → 100-ohm resistor → White LED → GND 
+    When relay closes = LED on = 'device active' 
+    When quarantined by AI server = relay opens = LED off = physical isolation demo 
+ 
+  Trust indicator RGB LED: 
+    GPIO 25 → 330-ohm → Red 
+    GPIO 33 → 330-ohm → Green 
+    GPIO 27 → 330-ohm → Blue 
+    Cathodes → GND 
+ 
+  WHY THIS IS POWERFUL FOR DEMO: 
+    When AI detects attack and sends MQTT quarantine command, 
+    the physical relay clicks and the white LED turns OFF. 
+    Judges see a REAL physical response to a cyber threat. 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 10 
+Part 3 — ESP32 Firmware Code — Full Arduino C++ 
+3.1 Shared Base Configuration (config.h — same for all boards) 
+Create a file called config.h and include it in all ESP32 sketches. Change only the DEVICE_ID and 
+DEVICE_TYPE per board. 
+ 
+#ifndef CONFIG_H 
+#define CONFIG_H 
+ 
+// ── WiFi Settings (your mobile hotspot) ── 
+#define WIFI_SSID     "DeviceDNA_Lab"      // Your hotspot name 
+#define WIFI_PASSWORD "devicedna2025"       // Your hotspot password 
+ 
+// ── MQTT Broker (server laptop IP) ── 
+#define MQTT_BROKER   "192.168.43.1"        // Server laptop IP on hotspot 
+#define MQTT_PORT     1883 
+#define MQTT_USER     ""                    // Leave blank (no auth in lab) 
+#define MQTT_PASS     "" 
+ 
+// ── Change these per board ── 
+// CAM board:     "cam_01",     "camera" 
+// Sensor board:  "sensor_01",  "sensor" 
+// Motion board:  "motion_01",  "motion" 
+// Gateway board: "gateway_01", "gateway" 
+#define DEVICE_ID   "cam_01" 
+#define DEVICE_TYPE "camera" 
+ 
+// ── MQTT Topics ── 
+#define TOPIC_TELEMETRY  "devicedna/telemetry" 
+#define TOPIC_COMMAND    "devicedna/command/" DEVICE_ID 
+#define TOPIC_STATUS     "devicedna/status/" DEVICE_ID 
+ 
+// ── Timing ── 
+#define TELEMETRY_INTERVAL_MS  5000   // Send telemetry every 5 seconds 
+#define HEARTBEAT_INTERVAL_MS  30000  // Heartbeat every 30 seconds 
+ 
+// ── Trust Score LED Pins ── 
+#define LED_RED_PIN    25 
+#define LED_GREEN_PIN  26 
+#define LED_BLUE_PIN   27 
+ 
+#endif 
+ 
+3.2 Shared WiFi + MQTT Library (base_mqtt.h) 
+Include this in all sketches. It handles WiFi connection, MQTT reconnection, command subscription, and LED 
+trust indication. 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 11 
+#ifndef BASE_MQTT_H 
+#define BASE_MQTT_H 
+#include <WiFi.h> 
+#include <PubSubClient.h> 
+#include <ArduinoJson.h> 
+#include "config.h" 
+ 
+WiFiClient espClient; 
+PubSubClient mqttClient(espClient); 
+ 
+float g_trustScore = 100.0;   // Updated by server commands 
+bool  g_quarantined = false; 
+ 
+// RGB LED: show trust score visually 
+void setTrustLED(float score) { 
+  if (score >= 70.0) { 
+    // GREEN = trusted 
+    digitalWrite(LED_RED_PIN,   LOW); 
+    digitalWrite(LED_GREEN_PIN, HIGH); 
+    digitalWrite(LED_BLUE_PIN,  LOW); 
+  } else if (score >= 40.0) { 
+    // YELLOW = suspicious (red + green) 
+    digitalWrite(LED_RED_PIN,   HIGH); 
+    digitalWrite(LED_GREEN_PIN, HIGH); 
+    digitalWrite(LED_BLUE_PIN,  LOW); 
+  } else { 
+    // RED = critical / under attack 
+    digitalWrite(LED_RED_PIN,   HIGH); 
+    digitalWrite(LED_GREEN_PIN, LOW); 
+    digitalWrite(LED_BLUE_PIN,  LOW); 
+  } 
+} 
+ 
+// Handle commands from AI server 
+void mqttCallback(char* topic, byte* payload, unsigned int length) { 
+  StaticJsonDocument<256> doc; 
+  deserializeJson(doc, payload, length); 
+ 
+  const char* action = doc["action"]; 
+  float score = doc["trust_score"] | 100.0; 
+ 
+  g_trustScore = score; 
+  setTrustLED(score); 
+ 
+  if (strcmp(action, "quarantine") == 0) { 
+    g_quarantined = true; 
+    // Flash red 3 times = quarantine alert 
+    for (int i=0; i<3; i++) { 
+      digitalWrite(LED_RED_PIN, HIGH); 
+      delay(200); 
+      digitalWrite(LED_RED_PIN, LOW); 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 12 
+      delay(200); 
+    } 
+    digitalWrite(LED_RED_PIN, HIGH);  // Stay red 
+    Serial.println("[ALERT] QUARANTINED by AI server"); 
+  } else if (strcmp(action, "release") == 0) { 
+    g_quarantined = false; 
+    Serial.println("[INFO] Released from quarantine"); 
+  } 
+} 
+ 
+void connectWiFi() { 
+  Serial.print("Connecting to WiFi: "); Serial.println(WIFI_SSID); 
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD); 
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); } 
+  Serial.print("\nConnected! IP: "); Serial.println(WiFi.localIP()); 
+} 
+ 
+void connectMQTT() { 
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT); 
+  mqttClient.setCallback(mqttCallback); 
+  while (!mqttClient.connected()) { 
+    Serial.print("Connecting to MQTT..."); 
+    if (mqttClient.connect(DEVICE_ID)) { 
+      Serial.println(" connected!"); 
+      mqttClient.subscribe(TOPIC_COMMAND); 
+      // Announce device online 
+      StaticJsonDocument<128> status; 
+      status["device_id"] = DEVICE_ID; 
+      status["device_type"] = DEVICE_TYPE; 
+      status["status"] = "online"; 
+      char buf[128]; serializeJson(status, buf); 
+      mqttClient.publish(TOPIC_STATUS, buf); 
+    } else { delay(2000); } 
+  } 
+} 
+ 
+void mqttLoop() { 
+  if (!mqttClient.connected()) connectMQTT(); 
+  mqttClient.loop(); 
+} 
+ 
+#endif 
+ 
+3.3 ESP32-CAM Node Firmware (esp32_cam_node.ino) 
+The CAM node generates realistic camera-class telemetry — high packet rates, larger payload sizes, RTSP-like 
+patterns. No actual video streaming needed. 
+ 
+#include "config.h" 
+#include "base_mqtt.h" 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 13 
+#include <ArduinoJson.h> 
+ 
+// CAM-specific config override (must match config.h) 
+// DEVICE_ID   = "cam_01" 
+// DEVICE_TYPE = "camera" 
+ 
+// CAM-specific pins (don't conflict with camera pins 0,2,4,5,18,19,21,22,23,25,26,27,32) 
+#undef LED_RED_PIN 
+#undef LED_GREEN_PIN 
+#undef LED_BLUE_PIN 
+#define LED_RED_PIN   12 
+#define LED_GREEN_PIN 13 
+#define LED_BLUE_PIN  15 
+ 
+unsigned long lastTelemetry = 0; 
+unsigned long telemetryCount = 0; 
+float attackMultiplier = 1.0;  // Server can inject attack mode 
+ 
+// Generate realistic camera telemetry 
+String generateCameraPayload() { 
+  StaticJsonDocument<512> doc; 
+ 
+  // Gaussian-like random within camera normal ranges 
+  // Camera: high packet rate, larger sizes, RTSP heavy, 15% external 
+  float baseFlows    = 80.0; 
+  float baseBytes    = 15000.0; 
+  float baseExternal = 0.15; 
+ 
+  doc["device_id"]    = DEVICE_ID; 
+  doc["device_type"]  = DEVICE_TYPE; 
+  doc["timestamp"]    = millis() / 1000; 
+ 
+  // Telemetry features (14D vector equivalents) 
+  doc["total_flows"]   = (int)(baseFlows   + random(-15, 15)); 
+  doc["total_bytes"]   = (long)(baseBytes  + random(-5000, 5000)); 
+  doc["total_packets"] = doc["total_flows"].as<int>() * random(8, 15); 
+  doc["avg_packet_size"]     = baseBytes / doc["total_flows"].as<float>(); 
+  doc["external_ratio"]      = baseExternal + (random(-5, 5) / 100.0); 
+  doc["tcp_ratio"]           = 0.70 + (random(-5, 5) / 100.0); 
+  doc["udp_ratio"]           = 0.15 + (random(-3, 3) / 100.0); 
+  doc["rtsp_ratio"]          = 0.45 + (random(-5, 5) / 100.0); 
+  doc["https_ratio"]         = 0.20 + (random(-3, 3) / 100.0); 
+  doc["dns_ratio"]           = 0.05 + (random(-2, 2) / 100.0); 
+  doc["unique_dst_ips"]      = random(3, 7); 
+  doc["unique_dst_ports"]    = random(2, 5); 
+  doc["avg_duration_ms"]     = random(800, 1500); 
+ 
+  // Attack injection: if attackMultiplier set by server 
+  if (attackMultiplier > 1.0) { 
+    doc["external_ratio"] = (float)doc["external_ratio"] * attackMultiplier; 
+    doc["unique_dst_ips"] = (int)doc["unique_dst_ips"]  * (int)attackMultiplier; 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 14 
+    doc["unique_dst_ports"] = (int)doc["unique_dst_ports"] * (int)attackMultiplier; 
+    doc["attack_injected"] = true; 
+  } 
+ 
+  char buf[512]; 
+  serializeJson(doc, buf); 
+  return String(buf); 
+} 
+ 
+void setup() { 
+  Serial.begin(115200); 
+  pinMode(LED_RED_PIN,   OUTPUT); 
+  pinMode(LED_GREEN_PIN, OUTPUT); 
+  pinMode(LED_BLUE_PIN,  OUTPUT); 
+  setTrustLED(100.0);  // Start green 
+ 
+  connectWiFi(); 
+  connectMQTT(); 
+  Serial.println("[CAM-01] Camera node online"); 
+} 
+ 
+void loop() { 
+  mqttLoop(); 
+ 
+  unsigned long now = millis(); 
+  if (now - lastTelemetry >= TELEMETRY_INTERVAL_MS) { 
+    lastTelemetry = now; 
+    if (!g_quarantined) { 
+      String payload = generateCameraPayload(); 
+      mqttClient.publish(TOPIC_TELEMETRY, payload.c_str()); 
+      Serial.println("[TX] " + payload.substring(0, 80) + "..."); 
+      telemetryCount++; 
+    } else { 
+      Serial.println("[QUARANTINED] Telemetry suppressed"); 
+    } 
+  } 
+} 
+ 
+3.4 ESP32 + DHT11 Sensor Node Firmware (esp32_sensor_node.ino) 
+In config.h, set DEVICE_ID = 'sensor_01' and DEVICE_TYPE = 'sensor'. The DHT11 reads real temperature and 
+humidity — these real values get embedded into the MQTT telemetry payload, making your sensor data 
+genuinely real. 
+ 
+#include "config.h" 
+#include "base_mqtt.h" 
+#include <DHT.h> 
+#include <ArduinoJson.h> 
+ 
+#define DHT_PIN  4 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 15 
+#define DHT_TYPE DHT11 
+DHT dht(DHT_PIN, DHT_TYPE); 
+ 
+unsigned long lastTelemetry = 0; 
+ 
+String generateSensorPayload() { 
+  StaticJsonDocument<512> doc; 
+ 
+  // Read REAL temperature and humidity from DHT11 
+  float temp = dht.readTemperature(); 
+  float hum  = dht.readHumidity(); 
+  if (isnan(temp)) temp = 28.0;  // fallback if read fails 
+  if (isnan(hum))  hum  = 65.0; 
+ 
+  // Sensor: low packet rate, tiny packets, MQTT heavy, near-zero external 
+  doc["device_id"]   = DEVICE_ID; 
+  doc["device_type"] = DEVICE_TYPE; 
+  doc["timestamp"]   = millis() / 1000; 
+ 
+  // Real sensor readings (embedded in telemetry) 
+  doc["temperature_c"]    = temp; 
+  doc["humidity_pct"]     = hum; 
+ 
+  // Network behavior telemetry (sensor class) 
+  doc["total_flows"]      = random(15, 25); 
+  doc["total_bytes"]      = random(300, 700); 
+  doc["avg_packet_size"]  = random(250, 350); 
+  doc["external_ratio"]   = 0.01 + (random(0, 1) / 100.0); 
+  doc["mqtt_ratio"]       = 0.60 + (random(-5, 5) / 100.0); 
+  doc["tcp_ratio"]        = 0.85 + (random(-5, 5) / 100.0); 
+  doc["unique_dst_ips"]   = random(1, 3); 
+  doc["unique_dst_ports"] = random(1, 2); 
+  doc["dns_ratio"]        = 0.01; 
+  doc["https_ratio"]      = 0.05; 
+ 
+  char buf[512]; 
+  serializeJson(doc, buf); 
+  return String(buf); 
+} 
+ 
+void setup() { 
+  Serial.begin(115200); 
+  dht.begin(); 
+  pinMode(LED_RED_PIN,   OUTPUT); 
+  pinMode(LED_GREEN_PIN, OUTPUT); 
+  pinMode(LED_BLUE_PIN,  OUTPUT); 
+  setTrustLED(100.0); 
+  connectWiFi(); 
+  connectMQTT(); 
+  Serial.println("[SENSOR-01] Sensor node online"); 
+} 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 16 
+ 
+void loop() { 
+  mqttLoop(); 
+  unsigned long now = millis(); 
+  if (now - lastTelemetry >= TELEMETRY_INTERVAL_MS && !g_quarantined) { 
+    lastTelemetry = now; 
+    String payload = generateSensorPayload(); 
+    mqttClient.publish(TOPIC_TELEMETRY, payload.c_str()); 
+    Serial.println("[TX] Sensor telemetry sent"); 
+  } 
+} 
+ 
+3.5 ESP32 + PIR Motion Node Firmware (esp32_motion_node.ino) 
+In config.h, set DEVICE_ID = 'motion_01' and DEVICE_TYPE = 'motion'. The PIR creates genuine event-driven 
+traffic bursts — when motion is detected, the telemetry profile changes dramatically, demonstrating event-
+triggered device behavior. 
+ 
+#include "config.h" 
+#include "base_mqtt.h" 
+#include <ArduinoJson.h> 
+ 
+#define PIR_PIN    34 
+#define ALERT_LED  32 
+ 
+unsigned long lastTelemetry  = 0; 
+unsigned long lastMotion     = 0; 
+bool          motionActive   = false; 
+int           motionBurstCount = 0; 
+ 
+String generateMotionPayload(bool burst) { 
+  StaticJsonDocument<512> doc; 
+  doc["device_id"]   = DEVICE_ID; 
+  doc["device_type"] = DEVICE_TYPE; 
+  doc["timestamp"]   = millis() / 1000; 
+  doc["motion_active"] = burst; 
+ 
+  if (burst) { 
+    // Motion event: traffic burst profile 
+    doc["total_flows"]     = random(40, 80);   // spikes up 
+    doc["total_bytes"]     = random(5000, 15000); 
+    doc["avg_packet_size"] = random(300, 600); 
+    doc["external_ratio"]  = 0.25 + (random(0, 15)/100.0); 
+    doc["unique_dst_ips"]  = random(2, 5); 
+    doc["event_type"]      = "motion_detected"; 
+  } else { 
+    // Idle: minimal traffic 
+    doc["total_flows"]     = random(3, 8); 
+    doc["total_bytes"]     = random(100, 300); 
+    doc["avg_packet_size"] = random(80, 150); 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 17 
+    doc["external_ratio"]  = 0.05; 
+    doc["unique_dst_ips"]  = 1; 
+    doc["event_type"]      = "idle"; 
+  } 
+ 
+  doc["tcp_ratio"]        = 0.70; 
+  doc["https_ratio"]      = 0.30; 
+  doc["unique_dst_ports"] = burst ? random(2,4) : 1; 
+  doc["dns_ratio"]        = 0.05; 
+ 
+  char buf[512]; serializeJson(doc, buf); 
+  return String(buf); 
+} 
+ 
+void setup() { 
+  Serial.begin(115200); 
+  pinMode(PIR_PIN,   INPUT); 
+  pinMode(ALERT_LED, OUTPUT); 
+  pinMode(LED_RED_PIN,   OUTPUT); 
+  pinMode(LED_GREEN_PIN, OUTPUT); 
+  pinMode(LED_BLUE_PIN,  OUTPUT); 
+  setTrustLED(100.0); 
+  connectWiFi(); 
+  connectMQTT(); 
+  Serial.println("[MOTION-01] Motion node online"); 
+} 
+ 
+void loop() { 
+  mqttLoop(); 
+  bool pirState = digitalRead(PIR_PIN); 
+  if (pirState == HIGH) { 
+    motionActive = true; 
+    lastMotion = millis(); 
+    digitalWrite(ALERT_LED, HIGH); 
+  } else if (millis() - lastMotion > 5000) { 
+    motionActive = false; 
+    digitalWrite(ALERT_LED, LOW); 
+  } 
+ 
+  unsigned long now = millis(); 
+  unsigned long interval = motionActive ? 1000 : TELEMETRY_INTERVAL_MS; 
+  if (now - lastTelemetry >= interval && !g_quarantined) { 
+    lastTelemetry = now; 
+    String payload = generateMotionPayload(motionActive); 
+    mqttClient.publish(TOPIC_TELEMETRY, payload.c_str()); 
+    Serial.print("[TX] Motion payload (burst="); Serial.print(motionActive); 
+Serial.println(")"); 
+  } 
+} 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 18 
+3.6 ESP32 + Relay Gateway Node Firmware [4-board plan] 
+In config.h, set DEVICE_ID = 'gateway_01' and DEVICE_TYPE = 'gateway'. The physical relay clicking when the 
+AI sends a quarantine command is the most dramatic demo moment. 
+ 
+#include "config.h" 
+#include "base_mqtt.h" 
+#include <ArduinoJson.h> 
+ 
+#define RELAY_PIN   26 
+#define STATUS_LED  32 
+ 
+// Override callback to also control relay 
+void mqttCallbackGateway(char* topic, byte* payload, unsigned int length) { 
+  StaticJsonDocument<256> doc; 
+  deserializeJson(doc, payload, length); 
+  const char* action = doc["action"]; 
+  float score = doc["trust_score"] | 100.0; 
+  g_trustScore = score; 
+  setTrustLED(score); 
+  if (strcmp(action, "quarantine") == 0) { 
+    g_quarantined = true; 
+    digitalWrite(RELAY_PIN, HIGH);  // Open relay = physical isolation 
+    digitalWrite(STATUS_LED, LOW);  // Status LED off 
+    Serial.println("[RELAY] OPENED — Device physically isolated!"); 
+  } else if (strcmp(action, "release") == 0) { 
+    g_quarantined = false; 
+    digitalWrite(RELAY_PIN, LOW);   // Close relay = reconnected 
+    digitalWrite(STATUS_LED, HIGH); 
+    Serial.println("[RELAY] CLOSED — Device reconnected"); 
+  } 
+} 
+ 
+String generateGatewayPayload() { 
+  StaticJsonDocument<512> doc; 
+  doc["device_id"]   = DEVICE_ID; 
+  doc["device_type"] = DEVICE_TYPE; 
+  doc["timestamp"]   = millis() / 1000; 
+  // Gateway: moderate traffic, HTTPS heavy, command/control patterns 
+  doc["total_flows"]      = random(25, 40); 
+  doc["total_bytes"]      = random(1500, 3000); 
+  doc["avg_packet_size"]  = random(200, 400); 
+  doc["external_ratio"]   = 0.10 + (random(-3, 3)/100.0); 
+  doc["https_ratio"]      = 0.40 + (random(-5, 5)/100.0); 
+  doc["tcp_ratio"]        = 0.80; 
+  doc["unique_dst_ips"]   = random(3, 8); 
+  doc["unique_dst_ports"] = random(2, 5); 
+  doc["dns_ratio"]        = 0.10; 
+  doc["relay_state"]      = g_quarantined ? "open" : "closed"; 
+  char buf[512]; serializeJson(doc, buf); 
+  return String(buf); 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 19 
+} 
+ 
+void setup() { 
+  Serial.begin(115200); 
+  pinMode(RELAY_PIN,  OUTPUT); 
+  pinMode(STATUS_LED, OUTPUT); 
+  pinMode(LED_RED_PIN,   OUTPUT); 
+  pinMode(LED_GREEN_PIN, OUTPUT); 
+  pinMode(LED_BLUE_PIN,  OUTPUT); 
+  digitalWrite(RELAY_PIN, LOW);    // Start: relay closed (device active) 
+  digitalWrite(STATUS_LED, HIGH); 
+  setTrustLED(100.0); 
+  connectWiFi(); 
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT); 
+  mqttClient.setCallback(mqttCallbackGateway);  // Custom callback 
+  connectMQTT(); 
+  Serial.println("[GATEWAY-01] Gateway node online"); 
+} 
+ 
+void loop() { 
+  mqttLoop(); 
+  unsigned long now = millis(); 
+  if (now % TELEMETRY_INTERVAL_MS < 100 && !g_quarantined) { 
+    String payload = generateGatewayPayload(); 
+    mqttClient.publish(TOPIC_TELEMETRY, payload.c_str()); 
+  } 
+} 
+ 
+Arduino Libraries Required 
+Install these via Arduino IDE Library Manager (Tools > Manage Libraries): 
+1. PubSubClient by Nick O'Leary (MQTT client) 
+2. ArduinoJson by Benoit Blanchon (JSON serialization) 
+3. DHT sensor library by Adafruit (DHT11/22 support) 
+4. ESP32 board support: Add in Boards Manager URL: https://raw.githubusercontent.com/espressif/arduino-
+esp32/gh-pages/package_esp32_index.json 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 20 
+Part 4 — Network Architecture — Mobile Hotspot LAN 
+4.1 Why Mobile Hotspot (Not College WiFi) 
+College WiFi has firewall rules that block MQTT port 1883, restrict device-to-device communication, and may 
+block raw TCP sockets needed for the attacker machine. Your own mobile hotspot gives you full control — all 
+devices are on the same subnet with no restrictions. 
+ 
+Device Role Expected IP Connects To 
+Android/iPhone 
+hotspot 
+Router / DHCP server 192.168.43.1 (hotspot IP) All devices 
+Server Laptop AI Server + MQTT 
+Broker 
+192.168.43.XXX (DHCP 
+assigned) 
+All ESP32s, attacker 
+Attacker Laptop Attack orchestrator 192.168.43.YYY (DHCP 
+assigned) 
+Server, ESP32s 
+ESP32-CAM cam_01 192.168.43.ZZZ (DHCP) MQTT Broker only 
+ESP32 Sensor sensor_01 192.168.43.AAA (DHCP) MQTT Broker only 
+ESP32 Motion motion_01 192.168.43.BBB (DHCP) MQTT Broker only 
+ESP32 Gateway gateway_01 [opt] 192.168.43.CCC (DHCP) MQTT Broker only 
+ 
+4.2 Critical Setup Step — Finding Server Laptop IP 
+The server laptop's IP address must be set in config.h before flashing ESP32s. To find it: 
+ 
+# On Windows — open Command Prompt or PowerShell 
+ipconfig 
+ 
+# Look for: 'Wireless LAN adapter Wi-Fi' 
+# IPv4 Address: 192.168.43.XXX  <- this is your MQTT_BROKER address 
+# Put this exact IP in config.h MQTT_BROKER define 
+ 
+IP Address Stability 
+Mobile hotspot DHCP may change the server laptop's IP if you reconnect. 
+Solution: On Android hotspot, go to Settings > Connected devices > Hotspot & tethering > Advanced. 
+Set the server laptop as a 'Reserved IP' using its MAC address (found via ipconfig /all). 
+Alternatively: After first connection, note the IP and reflash ESP32s only if IP changes. 
+For demo day: Connect all devices 30 minutes early and verify IPs before judges arrive. 
+ 
+4.3 Port Map — All Services 
+Port Protocol Service Who Uses It 
+1883 TCP Mosquitto MQTT Broker All ESP32s publish here; FastAPI consumes here 
+8000 TCP FastAPI Backend API Dashboard fetches trust scores, alerts from here 
+8001 WebSocket FastAPI WebSocket Dashboard receives real-time push events 
+3000 TCP React Dashboard (npm 
+dev) 
+Browser on any machine opens this 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 21 
+Port Protocol Service Who Uses It 
+5432 TCP PostgreSQL FastAPI internal only 
+8086 TCP InfluxDB FastAPI internal only 
+6379 TCP Redis FastAPI internal only (trust score cache) 
+ 
+4.4 Mosquitto MQTT Broker Configuration (Windows) 
+After installing Mosquitto, create a config file to allow anonymous connections on your LAN: 
+ 
+# File: C:\Program Files\mosquitto\mosquitto.conf 
+# Add these lines: 
+listener 1883 0.0.0.0 
+allow_anonymous true 
+log_type all 
+log_dest stdout 
+ 
+# Start Mosquitto (run in PowerShell as Administrator): 
+mosquitto -c "C:\Program Files\mosquitto\mosquitto.conf" -v 
+ 
+# Test it works — on server laptop, open another terminal: 
+mosquitto_sub -h localhost -t 'devicedna/#' -v 
+# You should see ESP32 messages appear here when boards connect 
+ 
+4.5 Windows Firewall Rules (Required) 
+Windows Firewall blocks incoming connections by default. Run these in PowerShell as Administrator: 
+ 
+# Allow MQTT (ESP32s need to reach port 1883) 
+netsh advfirewall firewall add rule name='MQTT' protocol=TCP dir=in localport=1883 
+action=allow 
+ 
+# Allow FastAPI 
+netsh advfirewall firewall add rule name='FastAPI' protocol=TCP dir=in localport=8000 
+action=allow 
+ 
+# Allow WebSocket 
+netsh advfirewall firewall add rule name='WS' protocol=TCP dir=in localport=8001 
+action=allow 
+ 
+# Allow React dev server 
+netsh advfirewall firewall add rule name='React' protocol=TCP dir=in localport=3000 
+action=allow 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 22 
+Part 5 — Server Setup — Windows 11, MQTT, Python, All Services 
+5.1 One-Time Setup Order 
+Follow this exact order. Do not skip steps — each one is a dependency for the next. 
+ 
+1. Install Python 3.11 from python.org. CHECK 'Add Python to PATH' during install. 
+2. Install Node.js 18+ from nodejs.org. 
+3. Install Git from git-scm.com. 
+4. Install Mosquitto MQTT from mosquitto.org. Choose 'Install as Windows Service'. 
+5. Install PostgreSQL 16 from postgresql.org. Note the password you set for 'postgres' user. 
+6. Install InfluxDB 2.x from influxdata.com. Run the setup wizard at http://localhost:8086. 
+7. Install Redis via WSL2: wsl --install then inside WSL: sudo apt install redis-server. 
+8. Install Arduino IDE 2.x from arduino.cc. Add ESP32 board support in board manager. 
+ 
+5.2 Python Environment Setup 
+# Open PowerShell in your project backend folder 
+cd C:\DeviceDNA\backend 
+ 
+# Create virtual environment 
+python -m venv venv 
+.\venv\Scripts\activate 
+ 
+# Install all packages 
+pip install fastapi uvicorn websockets paho-mqtt asyncio-mqtt 
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu 
+pip install numpy scikit-learn pandas influxdb-client psycopg2-binary 
+pip install torch-geometric shap joblib python-dotenv aiofiles redis 
+ 
+5.3 Environment Variables (.env file) 
+# File: backend/.env 
+MQTT_BROKER=localhost 
+MQTT_PORT=1883 
+POSTGRES_URL=postgresql://postgres:yourpassword@localhost:5432/devicedna 
+INFLUXDB_URL=http://localhost:8086 
+INFLUXDB_TOKEN=your-influxdb-token 
+INFLUXDB_ORG=devicedna 
+INFLUXDB_BUCKET=telemetry 
+REDIS_URL=redis://localhost:6379 
+SERVER_IP=192.168.43.XXX  # your hotspot IP 
+ 
+5.4 Start All Services — Demo Day Startup Sequence 
+Create a startup batch file (start_server.bat) on the desktop: 
+ 
+@echo off 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 23 
+echo Starting DeviceDNA Services... 
+ 
+:: Start Mosquitto (if not running as service) 
+start "MQTT" mosquitto -c "C:\Program Files\mosquitto\mosquitto.conf" -v 
+timeout /t 2 
+ 
+:: Start Redis (in WSL) 
+start "Redis" wsl redis-server 
+timeout /t 2 
+ 
+:: Activate venv and start FastAPI 
+cd C:\DeviceDNA\backend 
+start "FastAPI" cmd /k ".\venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 
+8000 --reload" 
+timeout /t 3 
+ 
+:: Start Virtual Device Simulator (46 devices) 
+start "VirtualDevices" cmd /k ".\venv\Scripts\activate && python 
+virtual_devices\simulator.py" 
+timeout /t 2 
+ 
+:: Start React dashboard 
+cd C:\DeviceDNA\frontend 
+start "Dashboard" cmd /k "npm run dev" 
+ 
+echo All services started! 
+echo Open dashboard at: http://localhost:3000 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 24 
+Part 6 — Virtual Device Simulation Engine (46 Devices) 
+6.1 Architecture — Python asyncio, One Task Per Device 
+Each virtual device runs as an asyncio task — lightweight coroutine, not a thread or process. All 46 run on the 
+same event loop. Each has its own behavior profile, MQTT client, and telemetry generation function. 
+ 
+6.2 Device Distribution 
+Device Class Physical Virtual Total Notes 
+Camera 1 (ESP32-
+CAM) 
+11 12 Virtual ones are cam_02 to cam_12 
+Sensor 1 (DHT11) 9 10 Virtual ones are sensor_02 to sensor_10 
+Motion/PIR 1 (HC-SR501) 4 5 Virtual ones are motion_02 to motion_05 
+Gateway 1 (Relay) or 0 5 or 6 6 Virtual ones are gateway_01 to gateway_06 
+Medical 0 8 8 All virtual — med_01 to med_08 
+Industrial 0 9 9 All virtual — ind_01 to ind_09 
+TOTAL 3 or 4 42 or 43 50 50 devices in ecosystem 
+ 
+6.3 Full Virtual Device Simulator Code (simulator.py) 
+# virtual_devices/simulator.py 
+import asyncio, json, random, time, math 
+import paho.mqtt.client as mqtt 
+from dataclasses import dataclass, field 
+from typing import Dict, Callable 
+ 
+MQTT_BROKER = '192.168.43.XXX'  # Server laptop IP (same machine = 'localhost') 
+MQTT_PORT   = 1883 
+TOPIC_TELEMETRY = 'devicedna/telemetry' 
+ 
+# ── Attack State (set externally by attack scripts) ────────── 
+ATTACK_STATE: Dict[str, dict] = {}  # device_id -> attack params 
+ 
+# ── Behavior Profiles ──────────────────────────────────────── 
+def gauss(mean, std, lo=0.0, hi=1.0): 
+    return max(lo, min(hi, random.gauss(mean, std))) 
+ 
+def camera_telemetry(device_id: str, attack: dict = None) -> dict: 
+    base = { 
+        'device_id':   device_id, 
+        'device_type': 'camera', 
+        'timestamp':   time.time(), 
+        'total_flows':      int(gauss(80, 10, 20, 200)), 
+        'total_bytes':      int(gauss(15000, 2000, 1000, 100000)), 
+        'avg_packet_size':  gauss(1400, 100, 200, 5000), 
+        'external_ratio':   gauss(0.15, 0.03, 0.0, 1.0), 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 25 
+        'tcp_ratio':        gauss(0.70, 0.05, 0.0, 1.0), 
+        'udp_ratio':        gauss(0.15, 0.03, 0.0, 1.0), 
+        'rtsp_ratio':       gauss(0.45, 0.05, 0.0, 1.0), 
+        'https_ratio':      gauss(0.20, 0.03, 0.0, 1.0), 
+        'dns_ratio':        gauss(0.05, 0.01, 0.0, 1.0), 
+        'unique_dst_ips':   int(gauss(5, 2, 1, 50)), 
+        'unique_dst_ports': int(gauss(3, 1, 1, 20)), 
+        'avg_duration_ms':  gauss(1000, 200, 100, 10000), 
+    } 
+    # Inject attack behavior if active 
+    if attack: 
+        if attack.get('type') == 'c2_beaconing': 
+            base['external_ratio'] = min(1.0, base['external_ratio'] + 
+attack.get('intensity', 0.3)) 
+            base['unique_dst_ips'] = max(15, base['unique_dst_ips'] + 10) 
+            base['unique_dst_ports'] = max(8, base['unique_dst_ports'] + 5) 
+            base['beacon_pattern'] = True 
+        elif attack.get('type') == 'exfiltration': 
+            base['total_bytes'] = int(base['total_bytes'] * (1 + attack.get('intensity', 
+0.5))) 
+            base['avg_packet_size'] *= (1 + attack.get('intensity', 0.3)) 
+            base['external_ratio'] = min(1.0, base['external_ratio'] + 0.2) 
+        base['attack_active'] = attack.get('type', 'unknown') 
+    return base 
+ 
+def sensor_telemetry(device_id: str, attack: dict = None) -> dict: 
+    base = { 
+        'device_id':   device_id, 
+        'device_type': 'sensor', 
+        'timestamp':   time.time(), 
+        'total_flows':      int(gauss(20, 5, 5, 60)), 
+        'total_bytes':      int(gauss(500, 100, 100, 2000)), 
+        'avg_packet_size':  gauss(300, 50, 50, 1000), 
+        'external_ratio':   gauss(0.01, 0.005, 0.0, 0.1), 
+        'mqtt_ratio':       gauss(0.60, 0.05, 0.3, 0.9), 
+        'tcp_ratio':        gauss(0.85, 0.05, 0.5, 1.0), 
+        'unique_dst_ips':   int(gauss(2, 1, 1, 5)), 
+        'unique_dst_ports': 1, 
+        'dns_ratio':        0.01, 
+        'https_ratio':      gauss(0.05, 0.01, 0.0, 0.2), 
+    } 
+    if attack: 
+        if attack.get('type') == 'exfiltration': 
+            base['total_bytes'] = int(base['total_bytes'] * 8) 
+            base['external_ratio'] = 0.40 
+    return base 
+ 
+def medical_telemetry(device_id: str, attack: dict = None) -> dict: 
+    return { 
+        'device_id':   device_id, 
+        'device_type': 'medical', 
+        'timestamp':   time.time(), 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 26 
+        'total_flows':      int(gauss(40, 10, 10, 100)), 
+        'total_bytes':      int(gauss(8000, 1500, 500, 50000)), 
+        'avg_packet_size':  gauss(800, 100, 100, 3000), 
+        'external_ratio':   gauss(0.05, 0.02, 0.0, 0.3), 
+        'hl7_ratio':        gauss(0.35, 0.05, 0.1, 0.8), 
+        'tcp_ratio':        gauss(0.90, 0.03, 0.7, 1.0), 
+        'unique_dst_ips':   int(gauss(3, 1, 1, 10)), 
+        'unique_dst_ports': int(gauss(2, 1, 1, 6)), 
+        'dns_ratio':        gauss(0.03, 0.01, 0.0, 0.1), 
+    } 
+ 
+def industrial_telemetry(device_id: str, attack: dict = None) -> dict: 
+    return { 
+        'device_id':   device_id, 
+        'device_type': 'industrial', 
+        'timestamp':   time.time(), 
+        'total_flows':      int(gauss(50, 10, 10, 120)), 
+        'total_bytes':      int(gauss(3000, 500, 500, 15000)), 
+        'avg_packet_size':  gauss(400, 80, 100, 2000), 
+        'external_ratio':   gauss(0.02, 0.01, 0.0, 0.1), 
+        'modbus_ratio':     gauss(0.40, 0.05, 0.1, 0.8), 
+        'tcp_ratio':        gauss(0.95, 0.02, 0.8, 1.0), 
+        'unique_dst_ips':   int(gauss(2, 1, 1, 5)), 
+        'unique_dst_ports': int(gauss(2, 1, 1, 4)), 
+    } 
+ 
+def gateway_telemetry(device_id: str, attack: dict = None) -> dict: 
+    base = { 
+        'device_id':   device_id, 
+        'device_type': 'gateway', 
+        'timestamp':   time.time(), 
+        'total_flows':      int(gauss(35, 8, 10, 100)), 
+        'total_bytes':      int(gauss(2500, 500, 500, 10000)), 
+        'avg_packet_size':  gauss(300, 60, 100, 2000), 
+        'external_ratio':   gauss(0.10, 0.03, 0.0, 0.5), 
+        'https_ratio':      gauss(0.40, 0.05, 0.1, 0.8), 
+        'tcp_ratio':        gauss(0.80, 0.05, 0.5, 1.0), 
+        'unique_dst_ips':   int(gauss(6, 2, 1, 30)), 
+        'unique_dst_ports': int(gauss(4, 2, 1, 15)), 
+        'dns_ratio':        gauss(0.10, 0.03, 0.0, 0.3), 
+    } 
+    if attack: 
+        if attack.get('type') == 'lateral_movement': 
+            base['unique_dst_ips'] += 20 
+            base['unique_dst_ports'] += 10 
+            base['lateral_target'] = attack.get('target', 'unknown') 
+    return base 
+ 
+# ── Device Registry ────────────────────────────────────────── 
+DEVICE_PROFILES = { 
+    # device_id: (telemetry_fn, interval_seconds) 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 27 
+    **{f'cam_{i:02d}':    (camera_telemetry,     5.0) for i in range(2, 13)}, 
+    **{f'sensor_{i:02d}': (sensor_telemetry,     5.0) for i in range(2, 11)}, 
+    **{f'motion_{i:02d}': (sensor_telemetry,     5.0) for i in range(2, 6)}, 
+    **{f'gateway_{i:02d}':(gateway_telemetry,    5.0) for i in range(1, 7)}, 
+    **{f'med_{i:02d}':    (medical_telemetry,    5.0) for i in range(1, 9)}, 
+    **{f'ind_{i:02d}':    (industrial_telemetry, 5.0) for i in range(1, 10)}, 
+} 
+ 
+# ── Single Device Coroutine ─────────────────────────────────── 
+async def run_device(device_id: str, telemetry_fn: Callable, interval: float): 
+    client = mqtt.Client(client_id=device_id) 
+    client.connect(MQTT_BROKER, MQTT_PORT, 60) 
+    client.loop_start() 
+    print(f'[VIRTUAL] {device_id} online') 
+    while True: 
+        attack = ATTACK_STATE.get(device_id) 
+        payload = telemetry_fn(device_id, attack) 
+        client.publish(TOPIC_TELEMETRY, json.dumps(payload)) 
+        await asyncio.sleep(interval) 
+ 
+# ── Launch All 46 Devices ──────────────────────────────────── 
+async def main(): 
+    print(f'Starting {len(DEVICE_PROFILES)} virtual devices...') 
+    tasks = [ 
+        asyncio.create_task(run_device(dev_id, fn, interval)) 
+        for dev_id, (fn, interval) in DEVICE_PROFILES.items() 
+    ] 
+    print('All virtual devices running. Press Ctrl+C to stop.') 
+    await asyncio.gather(*tasks) 
+ 
+if __name__ == '__main__': 
+    asyncio.run(main()) 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 28 
+Part 7 — Telemetry Pipeline — ESP32 to ML Engine 
+7.1 FastAPI MQTT Consumer (main.py excerpt) 
+The FastAPI backend subscribes to all MQTT telemetry, extracts 14D feature vectors, and routes to the ML 
+pipeline. Every message from physical AND virtual devices follows the same path. 
+ 
+# backend/main.py (core MQTT consumer section) 
+import asyncio, json 
+import asyncio_mqtt as aiomqtt 
+from feature_extraction import extract_features 
+from trust_engine import evaluate_device 
+from db.redis_client import cache_trust_score 
+from db.influx_client import write_telemetry 
+from websocket_manager import broadcast_trust_update 
+ 
+async def mqtt_consumer(): 
+    async with aiomqtt.Client('localhost') as client: 
+        await client.subscribe('devicedna/telemetry') 
+        async for message in client.messages: 
+            try: 
+                raw = json.loads(message.payload) 
+                device_id = raw['device_id'] 
+                device_type = raw['device_type'] 
+ 
+                # 1. Extract 14D feature vector 
+                features = extract_features(raw) 
+ 
+                # 2. Write raw telemetry to InfluxDB 
+                await write_telemetry(device_id, raw, features) 
+ 
+                # 3. Run ML pipeline 
+                trust_result = await evaluate_device(device_id, device_type, features) 
+ 
+                # 4. Cache trust score in Redis 
+                await cache_trust_score(device_id, trust_result) 
+ 
+                # 5. Push to dashboard via WebSocket 
+                await broadcast_trust_update(device_id, trust_result) 
+ 
+                # 6. Auto-quarantine if critical 
+                if trust_result['trust_score'] < 30: 
+                    await send_quarantine_command(device_id) 
+ 
+            except Exception as e: 
+                print(f'[ERROR] Processing {device_id}: {e}') 
+ 
+7.2 Feature Extraction (feature_extraction.py) 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 29 
+# backend/feature_extraction.py 
+import numpy as np 
+ 
+def extract_features(raw: dict) -> np.ndarray: 
+    '''Convert raw MQTT payload to 14D feature vector.''' 
+    features = np.array([ 
+        float(raw.get('total_flows',     0)),       # dim 0 
+        float(raw.get('total_bytes',     0)),       # dim 1 
+        float(raw.get('total_packets',   0)),       # dim 2 
+        float(raw.get('avg_packet_size', 0)),       # dim 3 
+        float(raw.get('avg_duration_ms', 500)),     # dim 4 
+        float(raw.get('tcp_ratio',       0.5)),     # dim 5 
+        float(raw.get('udp_ratio',       0.1)),     # dim 6 
+        float(raw.get('http_ratio',      0.05)),    # dim 7 
+        float(raw.get('https_ratio',     0.2)),     # dim 8 
+        float(raw.get('dns_ratio',       0.05)),    # dim 9 
+        float(raw.get('rtsp_ratio', 0) + raw.get('mqtt_ratio', 0) + 
+              raw.get('hl7_ratio',  0) + raw.get('modbus_ratio',0)),  # dim 10 'other' 
+        float(raw.get('unique_dst_ips',   3)),      # dim 11 
+        float(raw.get('unique_dst_ports', 2)),      # dim 12 
+        float(raw.get('external_ratio',  0.1)),     # dim 13 
+    ], dtype=np.float32) 
+    return features 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 30 
+Part 8 — Attack Execution — Real Network + Behavioral Attacks 
+Your attacks combine two layers: real network-layer activity from the attacker laptop (actual TCP/UDP packets 
+hitting the server and ESP32s), plus behavioral mutation of virtual device telemetry. This makes the attacks 
+genuinely real while remaining safe and legal on your own LAN. 
+ 
+Safety Principle 
+All attacks run ONLY on your private hotspot LAN. 
+No real malware is used — Python scripts generate attack-patterned network traffic. 
+All attack scripts are purpose-built for DeviceDNA demonstration. 
+ESP32s and server are not harmed — they simply see unusual traffic patterns. 
+This is standard penetration testing methodology on owned infrastructure. 
+ 
+8.1 Attack 1 — Stealth Reconnaissance (nmap port scan) 
+A port scan from the attacker laptop generates real network traffic hitting the server and ESP32s. The network-
+layer packets cause flow anomalies that the per-device VAE and IF detect. 
+ 
+What Happens Technically 
+• Attacker laptop runs nmap — sends real SYN packets to all LAN IPs 
+• ESP32s see connection attempts they have never received before — unique_dst_ips and port_entropy 
+spike 
+• Virtual devices get behavioral mutation injected via ATTACK_STATE dict 
+• Server sees unusual traffic on its open ports from an unfamiliar source IP 
+• Isolation Forest detects structural outlier — unusual port combination 
+• CUSUM begins accumulating the new connection attempt signal 
+ 
+Attacker Laptop Commands 
+# Install nmap on attacker laptop: https://nmap.org 
+# Run in PowerShell on attacker laptop: 
+ 
+# Step 1: Discover all devices on hotspot network 
+nmap -sn 192.168.43.0/24 
+# Note all live IPs — these appear in your demo as 'reconnaissance detected' 
+ 
+# Step 2: Slow stealth scan (SYN scan, not full connect) 
+nmap -sS -T2 -p 1-1024 192.168.43.0/24 
+# -T2 = slow timing to simulate APT patience 
+# -sS = SYN scan (half-open) — stealthier 
+ 
+# Step 3: Service detection on server 
+nmap -sV -p 1883,8000,8001,3000,5432 192.168.43.XXX 
+ 
+Behavioral Injection (run simultaneously on server) 
+# backend/attacks/attack1_recon.py 
+import sys, time 
+sys.path.insert(0, '..') 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 31 
+from virtual_devices.simulator import ATTACK_STATE 
+ 
+print('[ATTACK 1] Stealth reconnaissance starting...') 
+# Inject subtle recon behavior into 3 cameras 
+for cam_id in ['cam_02', 'cam_03', 'cam_04']: 
+    ATTACK_STATE[cam_id] = { 
+        'type': 'recon', 
+        'unique_dst_ips_delta': 8,   # scans 8 more IPs than normal 
+        'port_entropy_delta': 0.3, 
+        'intensity': 0.3 
+    } 
+time.sleep(120)  # Run for 2 minutes 
+# Cleanup 
+for cam_id in ['cam_02', 'cam_03', 'cam_04']: 
+    del ATTACK_STATE[cam_id] 
+print('[ATTACK 1] Recon complete') 
+ 
+Expected Dashboard Effect 
+Timeline What Dashboard Shows Detector 
+T+0s New unknown IP appears in network graph sending 
+probes 
+GNN — new edge 
+T+30s 3 camera trust scores drop from 95 to 72 
+(GUARDED) 
+IF — port entropy 
+T+60s CUSUM accumulator bar starts rising on cam_02 CUSUM beginning 
+T+90s Alert: 'Stealth Reconnaissance Detected — 3 
+Cameras Probed' 
+Fusion engine 
+T+120s Trust scores partially recover as scan slows Normal drift back 
+ 
+8.2 Attack 2 — Botnet C2 Beaconing 
+The most visually dramatic attack. A physical ESP32-CAM and 2 virtual cameras begin synchronized beaconing 
+to a fake C2 server IP. The LSTM detects the periodic timing pattern while GMVAE detects the synchronized 
+cluster anomaly. 
+ 
+What Happens Technically 
+• Attacker laptop runs a Python script that sends periodic HTTP requests (beaconing pattern) to the server, 
+mimicking compromised device behavior 
+• Virtual device ATTACK_STATE injects C2 beaconing telemetry into cam_02 and cam_03 
+• ESP32-CAM gets a MQTT command to enter 'beacon mode' (external_ratio increases in its payload) 
+• Three cameras now show synchronized anomalies — Global GMVAE sees cluster instability 
+ 
+Attacker Laptop — Real C2 Beacon Simulation 
+# attacker_laptop/attack2_beaconing.py 
+import socket, time, random, threading 
+ 
+SERVER_IP = '192.168.43.XXX' 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 32 
+BEACON_PORT = 4444  # classic C2 port for demo 
+BEACON_INTERVAL = 30  # seconds (realistic APT beacon timing) 
+ 
+def beacon(device_name: str, jitter: float = 5.0): 
+    '''Simulate a compromised device beaconing to C2.''' 
+    print(f'[BEACON] {device_name} starting C2 beaconing to {SERVER_IP}:{BEACON_PORT}') 
+    while True: 
+        try: 
+            # Real TCP connection attempt — this creates actual network traffic 
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+            s.settimeout(3) 
+            s.connect((SERVER_IP, BEACON_PORT)) 
+            # Send fake beacon payload (small, like real C2 check-in) 
+            s.send(b'BEACON:' + device_name.encode() + b':ALIVE\r\n') 
+            s.close() 
+        except: 
+            pass  # Connection refused is fine — traffic was generated 
+        # Fixed interval + jitter (realistic APT timing) 
+        sleep_time = BEACON_INTERVAL + random.uniform(-jitter, jitter) 
+        time.sleep(sleep_time) 
+ 
+# Launch 3 synchronized beacons 
+threads = [ 
+    threading.Thread(target=beacon, args=('cam_01_physical',)),  # real ESP32-CAM 
+    threading.Thread(target=beacon, args=('cam_02_virtual',), kwargs={'jitter': 3}), 
+    threading.Thread(target=beacon, args=('cam_03_virtual',), kwargs={'jitter': 4}), 
+] 
+for t in threads: t.daemon = True; t.start() 
+print('[ATTACK 2] Synchronized C2 beaconing active. Press Ctrl+C to stop.') 
+try: 
+    while True: time.sleep(1) 
+except KeyboardInterrupt: 
+    print('[ATTACK 2] Beaconing stopped') 
+ 
+Behavioral Injection (server side) 
+# backend/attacks/attack2_beaconing.py 
+from virtual_devices.simulator import ATTACK_STATE 
+import time 
+ 
+# Also tell virtual cameras to show C2 telemetry patterns 
+for cam_id in ['cam_02', 'cam_03']: 
+    ATTACK_STATE[cam_id] = { 
+        'type': 'c2_beaconing', 
+        'intensity': 0.35, 
+        'beacon_interval': 30 
+    } 
+# Send MQTT command to physical ESP32-CAM to boost external_ratio 
+import paho.mqtt.client as mqtt 
+import json 
+c = mqtt.Client(); c.connect('localhost', 1883) 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 33 
+c.publish('devicedna/inject/cam_01', json.dumps({'attack': 'c2', 'intensity': 0.4})) 
+print('[ATTACK 2] Behavioral injection complete') 
+ 
+Expected Dashboard Effect 
+Timeline What Dashboard Shows Detector Firing 
+T+0s Three camera nodes begin pulsing yellow Per-device VAE: L_D rising 
+T+30s First beacon detected — port 4444 edge 
+appears on graph 
+GNN: new external edge 
+T+60s Synchronized timing anomaly flagged LSTM: periodic pattern 
+T+90s GMVAE cluster entropy rises — 'Camera 
+cluster instability' 
+Global GMVAE 
+T+120s Trust scores: cam_01=48, cam_02=41, 
+cam_03=44 — all SUSPICIOUS 
+Fusion engine 
+T+180s AUTO-RESPONSE: cam_01 QUARANTINED 
+— ESP32-CAM LED turns RED 
+Autonomous response 
+T+180s Physical ESP32-CAM blinks red 3x and stays 
+red 
+Physical LED feedback 
+ 
+8.3 Attack 3 — Lateral Movement 
+A compromised medical device starts probing other devices on the network, creating new graph edges that GNN 
+had never seen. This is the most visually impressive attack — the D3 graph literally changes shape in real time. 
+ 
+Attacker Laptop — Real Lateral Probing 
+# attacker_laptop/attack3_lateral.py 
+import socket, time, threading 
+ 
+# Target IPs: the ESP32s and server on the LAN 
+TARGETS = [ 
+    ('192.168.43.XXX', 22,   'SSH probe'),    # server SSH 
+    ('192.168.43.XXX', 5432, 'DB probe'),     # server postgres 
+    ('192.168.43.ZZZ', 80,   'cam probe'),    # ESP32-CAM HTTP 
+    ('192.168.43.AAA', 1883, 'sensor probe'), # sensor MQTT 
+] 
+ 
+def lateral_probe(target_ip, port, desc): 
+    while True: 
+        try: 
+            s = socket.socket() 
+            s.settimeout(2) 
+            s.connect((target_ip, port)) 
+            s.send(b'GET / HTTP/1.0\r\n\r\n')  # generic probe 
+            s.close() 
+        except: pass 
+        print(f'[LATERAL] Probed {target_ip}:{port} ({desc})') 
+        time.sleep(15)  # probe every 15 seconds 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 34 
+for ip, port, desc in TARGETS: 
+    t = threading.Thread(target=lateral_probe, args=(ip, port, desc)) 
+    t.daemon = True; t.start() 
+ 
+print('[ATTACK 3] Lateral movement active — probing all LAN targets') 
+time.sleep(300)  # run 5 minutes 
+ 
+Behavioral Injection (new graph edges) 
+# backend/attacks/attack3_lateral.py 
+from virtual_devices.simulator import ATTACK_STATE 
+import paho.mqtt.client as mqtt, json 
+ 
+# Inject lateral movement behavior into medical devices 
+for med_id in ['med_01', 'med_02']: 
+    ATTACK_STATE[med_id] = { 
+        'type': 'lateral_movement', 
+        'target': 'database_server', 
+        'new_edges': ['med_01->db_server', 'med_01->cam_01'], 
+        'intensity': 0.6 
+    } 
+ 
+Expected Dashboard Effect 
+Timeline What Dashboard Shows Detector 
+T+0s D3 graph: new red edges appear from med_01 to 
+cam_01 and db_server 
+GNN: new topology 
+T+30s Graph edges multiply — lateral spread visible 
+across network 
+GNN embedding shifts 
+T+60s Med device trust: 95 → 58 → 31 (CRITICAL in 2 
+min) 
+Fusion engine 
+T+90s Alert: 'Lateral Movement Detected — Medical 
+Device Compromised' 
+GNN + IF 
+T+120s Both medical devices quarantined — red nodes 
+in D3 graph 
+Autonomous response 
+ 
+8.4 Attack 4 — Slow Data Exfiltration 
+The most educational attack for judges. Over 5+ minutes, a sensor's outbound bytes slowly increase. No single 
+window triggers an alarm. Only CUSUM, accumulating across windows, detects it. This perfectly demonstrates 
+why ML is needed over simple threshold rules. 
+ 
+Attacker Laptop — Gradual Exfiltration Traffic 
+# attacker_laptop/attack4_exfil.py 
+import socket, time, os 
+ 
+SERVER_IP = '192.168.43.XXX' 
+EXFIL_PORT = 8080  # fake exfiltration endpoint 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 35 
+def send_exfil_payload(size_bytes: int): 
+    '''Send a blob of data simulating stolen data upload.''' 
+    try: 
+        s = socket.socket() 
+        s.settimeout(5) 
+        s.connect((SERVER_IP, EXFIL_PORT)) 
+        # Send random bytes = fake stolen data 
+        s.send(os.urandom(size_bytes)) 
+        s.close() 
+    except: pass 
+ 
+# Slowly escalating payload sizes (APT slow exfil) 
+schedule = [ 
+    (0,   500,  'Day 1 baseline check-in'), 
+    (60,  600,  'Slight increase'), 
+    (120, 800,  'Growing exfil'), 
+    (180, 1200, 'Noticeable but below threshold'), 
+    (240, 2000, 'CUSUM should fire here'), 
+    (300, 3500, 'Full exfiltration mode'), 
+] 
+ 
+for delay, size, label in schedule: 
+    time.sleep(delay if delay == 0 else 60) 
+    print(f'[EXFIL] {label}: sending {size} bytes') 
+    send_exfil_payload(size) 
+ 
+Behavioral Injection — Gradual Escalation 
+# backend/attacks/attack4_exfil.py 
+from virtual_devices.simulator import ATTACK_STATE 
+import time 
+ 
+intensity_steps = [0.0, 0.1, 0.2, 0.35, 0.55, 0.80] 
+for step, intensity in enumerate(intensity_steps): 
+    if intensity > 0: 
+        ATTACK_STATE['sensor_02'] = {'type': 'exfiltration', 'intensity': intensity} 
+        print(f'[EXFIL] Step {step}: intensity={intensity}') 
+    time.sleep(60)  # 1-minute intervals 
+ 
+Expected Dashboard Effect — CUSUM Story 
+Minute Bytes Sent CUSUM Value Dashboard / Detector 
+0 500 0.00 Normal — green 
+1 600 0.45 Accumulating — green 
+2 800 1.20 Accumulating — green 
+3 1200 2.10 Accumulating — slight yellow tint 
+4 2000 3.30 > H=3.0 DRIFT ALARM — CUSUM fires! Yellow alert 
+5 3500 4.50 (clipped) CRITICAL — trust 95→47 — alarm active 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 36 
+This is your best teaching moment for judges: point to the CUSUM heatmap showing 5 minutes of accumulation, 
+then the alarm firing. Say: 'A simple threshold would never have caught this. Only sequential accumulation does.' 
+ 
+8.5 Attack 5 — Coordinated Multi-Device Compromise (Finale) 
+The climactic demo attack. All previous attacks run simultaneously. The Global GMVAE detects the ecosystem-
+level event that no per-device model could see alone. The entire dashboard goes orange and red. This is your 
+'wow moment'. 
+ 
+# backend/attacks/attack5_coordinated.py 
+# Run this LAST in the demo — maximum visual impact 
+import subprocess, time, threading 
+ 
+def run_script(script): 
+    subprocess.run(['python', script]) 
+ 
+# Launch all attacks in sequence with 30s delay between 
+attacks = [ 
+    'attack2_beaconing.py', 
+    'attack3_lateral.py', 
+    'attack4_exfil.py', 
+] 
+ 
+threads = [] 
+for i, attack in enumerate(attacks): 
+    time.sleep(30)  # Staggered start — more realistic 
+    t = threading.Thread(target=run_script, args=(f'backend/attacks/{attack}',)) 
+    t.start(); threads.append(t) 
+    print(f'[COORDINATED] Launched {attack}') 
+ 
+print('[COORDINATED] All attacks active — watch the dashboard') 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 37 
+Part 9 — Live Demo Script — Minute-by-Minute Playbook 
+This is your exact demo script for the judge presentation. Total demo time: 15-20 minutes. Assign roles before 
+demo day. 
+ 
+Role Person Responsibility 
+Presenter Member 1 Talks to judges, explains what's happening, narrates the story 
+Dashboard 
+Operator 
+Member 2 Controls what's shown on screen, clicks through panels 
+Attack 
+Operator 
+Member 3 On attacker laptop, runs attack scripts on cue from presenter 
+Hardware 
+Monitor 
+Member 4 (if 
+present) 
+Watches ESP32 LEDs, manages physical boards, handles issues 
+ 
+9.1 Pre-Demo Checklist (30 minutes before judges arrive) 
+• Connect mobile hotspot — verify all devices connect (check connected devices list) 
+• Run start_server.bat on server laptop — verify all 6 terminal windows open 
+• Open dashboard at http://localhost:3000 on display machine — verify 50 devices visible 
+• Verify ESP32s are blinking green (trust score LED) — they are online 
+• Run: mosquitto_sub -h localhost -t 'devicedna/#' -v — verify MQTT messages flowing 
+• Open attack scripts on attacker laptop — ready to run, NOT started yet 
+• Set dashboard to Network Topology view — D3 graph showing all 50 nodes 
+• Brief team: every member knows their cue words ('launch it', 'show the graph', etc.) 
+ 
+9.2 Demo Script — Minute by Minute 
+ 
+PHASE 0: Introduction [Minutes 0-2] 
+Presenter: 'What you're seeing is 50 IoT devices — 4 real ESP32 boards in front of you, and 46 virtual devices 
+our system simulates. Every device is being monitored in real time by our AI system, DeviceDNA. Each device 
+has a Trust Score from 0 to 100.' 
+Dashboard: Show the trust score panel. All green. Point to the physical ESP32s. Point to the LED indicators on 
+each board — all glowing green. 
+Presenter: 'We use a dual-layer AI: 50 per-device VAEs that know each device's exact behavioral fingerprint, plus 
+one Global GMVAE that watches the entire ecosystem for coordinated threats. Let me show you what happens 
+under attack.' 
+ 
+PHASE 1: Stealth Reconnaissance [Minutes 2-5] 
+Presenter: 'An attacker just joined our network. Watch what our system detects.' — Cue: 'LAUNCH RECON' 
+Attack Operator: Runs attack1_recon.py and nmap scan simultaneously. 
+Dashboard: Switch to Network Topology view. New node appears (attacker IP). Edges appear from attacker to 
+device nodes. Three camera nodes pulse yellow. 
+Presenter: 'Our GNN detected a new communication edge — something is scanning our cameras. No threshold 
+was crossed. The graph topology changed, and our Graph Neural Network flagged it instantly.' 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 38 
+PHASE 2: Botnet C2 Beaconing [Minutes 5-9] 
+Presenter: 'The attacker has compromised three cameras. They are now beaconing to a Command-and-Control 
+server — watch the timing pattern emerge.' — Cue: 'LAUNCH BEACONING' 
+Attack Operator: Runs attack2_beaconing.py on attacker laptop + server. 
+Dashboard: Show LSTM temporal panel. Periodic spikes appear. Camera trust scores drop. GMVAE panel shows 
+camera cluster entropy rising. 
+Presenter: 'Our LSTM detected the fixed-interval timing — 30 seconds, every time, with slight jitter. Human 
+analysts might miss this in a sea of traffic. Our system flagged it in 90 seconds.' 
+[After 90 seconds] Watch the physical ESP32-CAM LED turn RED and flash 3 times. 
+Presenter: 'Our autonomous response just quarantined Camera 01. That physical red LED you see means the 
+device has been isolated. The AI sent a MQTT command to the board.' 
+ 
+PHASE 3: Lateral Movement [Minutes 9-12] 
+Presenter: 'The attacker is now trying to spread. Watch the network graph.' — Cue: 'LAUNCH LATERAL' 
+Attack Operator: Runs attack3_lateral.py. 
+Dashboard: D3 graph animates — new red edges appear from med_01 to other nodes. Graph topology visibly 
+changes. 
+Presenter: 'New communication paths that have NEVER existed in this network. Our GNN learned the normal 
+graph structure during training. It immediately saw these impossible edges.' 
+[Point to medical device nodes going red] 'Both medical devices — isolated. Automatically. No human decision 
+needed.' 
+ 
+PHASE 4: Slow Exfiltration + CUSUM Story [Minutes 12-16] 
+Presenter: 'This next attack is the hardest to detect — and our most important innovation.' — Cue: 'LAUNCH 
+EXFIL' 
+Attack Operator: Runs attack4_exfil.py. 
+Dashboard: Switch to CUSUM Drift Panel. Show the accumulator bar slowly rising over minutes 1-4. 
+Presenter: 'No single reading is alarming. 500 bytes... 600 bytes... 800 bytes. A rules-based system sees nothing 
+wrong. But our CUSUM algorithm accumulates every tiny deviation.' 
+[At minute 4] 'There — threshold crossed. 4 minutes of accumulated evidence. Alarm fires. Sensor trust drops 
+from 95 to 47.' 
+Presenter: 'This is why machine learning beats static rules. Rules need a threshold. CUSUM builds a case.' 
+ 
+PHASE 5: Coordinated Attack + Global GMVAE [Minutes 16-19] 
+Presenter: 'For our finale — a coordinated multi-device attack. Watch what only our Global GMVAE can see.' — 
+Cue: 'LAUNCH ALL' 
+Attack Operator: Runs attack5_coordinated.py. 
+Dashboard: Switch to Ecosystem Health Panel. Global GMVAE cluster entropy graph spikes. Multiple device 
+classes show simultaneous anomalies. Trust scores cascade across the board. 
+Presenter: 'Per-device models see individual anomalies. But our Global GMVAE sees 50 devices simultaneously. 
+When 15 devices across 4 different classes all deviate at once — that is a coordinated attack signature that no 
+single-device model could ever detect.' 
+[Dashboard goes mostly red/orange] 
+Presenter: 'DeviceDNA detected and responded to all 4 attack vectors — automatically, in real time, with 
+evidence-based explanations for every alert.' 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 39 
+PHASE 6: Q&A Setup [Minutes 19-20] 
+Presenter: 'Let me show you the explainability panel — every alert tells you exactly which features deviated and 
+by how much, why the trust score changed, and what the recommended action is.' 
+Dashboard: Show alert detail view with SHAP feature attribution and threat intelligence brief. 
+Presenter: 'Thank you. Questions?' 
+ 
+9.3 Answers to Common Judge Questions 
+Question Best Answer 
+Why not use a simpler 
+threshold system? 
+Show the CUSUM demo — Day 1 through Day 5, no single reading crossed 
+any threshold. CUSUM caught it on Day 4 by accumulation. Thresholds are 
+trivially bypassed by any sophisticated attacker. 
+How is this different from 
+existing IDS systems like 
+Snort? 
+Snort matches known attack signatures. If an attacker uses a new technique, 
+Snort misses it. Our VAEs learn behavioral normality — they catch zero-day 
+behavioral anomalies without knowing the attack pattern. 
+Why do you need both the 
+Global GMVAE and per-device 
+VAEs? 
+Point to Attack 5. The coordinated beaconing: each camera's individual 
+deviation was borderline. Only when GMVAE sees all cameras simultaneously 
+deviating does the pattern become clear. You need both microscopic and 
+macroscopic intelligence. 
+Are the attacks real? The network traffic is real — actual TCP packets from the attacker laptop 
+hitting the server and ESP32s. The behavioral mutations amplify what the AI 
+sees to create a realistic demo. This is standard penetration testing on owned 
+infrastructure. 
+What happens when a 
+legitimate update changes 
+device behavior? 
+Good question — our system has a policy engine and retraining cycle. When a 
+firmware update is planned, the operator can reset the baseline VAE after the 
+update period. The DNA similarity check would flag it, and a human confirms 
+it's expected. 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 40 
+Part 10 — 3-4 Week Build Roadmap — Task Assignment 
+4 members, rotating: at any point 3 are active, 1 is resting. Each week has clear deliverables. Do not move to next 
+week until current week is complete and tested. 
+ 
+Week 1 — Hardware + Network + Basic MQTT [Days 1-7] 
+Day Tasks Owner Done When 
+Day 
+1 
+Buy all components. Set up mobile 
+hotspot. Install Mosquitto on server 
+laptop. Test mosquitto_pub and 
+mosquitto_sub. 
+M1+M2 mosquitto_sub shows messages 
+Day 
+2 
+Flash ESP32-CAM with camera 
+firmware. Verify MQTT connection. 
+LED turns green. 
+M1 CAM publishes to MQTT, LED works 
+Day 
+3 
+Flash ESP32 Sensor node with DHT11 
+firmware. Real temp readings in MQTT 
+payload. 
+M2 Sensor publishes real temp data 
+Day 
+4 
+Flash ESP32 Motion node with PIR 
+firmware. Motion triggers burst 
+telemetry. 
+M3 Motion burst visible in MQTT 
+Day 
+5 
+Wire all RGB LEDs properly. Test trust 
+score LED colors (force-set from 
+laptop). 
+M1+M2 All 3 boards show R/G/Y correctly 
+Day 
+6 
+Install all Python packages. Build 
+feature extraction. Test 14D vector 
+output. 
+M3+M4 extract_features() returns correct array 
+Day 
+7 
+Integration test: all 3 ESP32s + MQTT 
++ feature extraction running together. 
+All 3 boards visible, features extracted 
+ 
+Week 2 — Virtual Devices + ML Models [Days 8-14] 
+Day Tasks Owner Done When 
+Day 
+8 
+Run simulator.py — verify 46 virtual devices 
+publishing MQTT. Dashboard shows 50 devices. 
+M2 50 devices in MQTT stream 
+Day 
+9 
+Train per-device VAEs: run train_vae.py for all 50 
+devices. 
+M1+M3 models_trained/ directory has 50 
+.pt files 
+Day 
+10 
+Train Isolation Forest (6 class models). Integrate into 
+trust engine. 
+M2 IF scoring returns values (not -1) 
+Day 
+11 
+Train Global GMVAE on all 50 devices. Wire into 
+trust engine (20% weight). 
+M3+M4 GMVAE cluster probabilities 
+printing 
+Day 
+12 
+Build FastAPI MQTT consumer. Wire: 
+MQTT→features→VAE→trust→Redis→WebSocket. 
+M1+M2 Trust scores updating in Redis in 
+real time 
+Day 
+13 
+Wire React dashboard to FastAPI API. Replace all 
+mock data. Trust scores live. 
+M3 Dashboard shows real scores from 
+ML 
+Day 
+14 
+Full system integration test. All 50 devices, all 
+models, dashboard live. 
+All Trust scores updating on 
+dashboard every 5s 
+ 
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 41 
+Week 3 — Attacks + Detection + Polish [Days 15-21] 
+Day Tasks Owner Done When 
+Day 
+15 
+Build attack2_beaconing.py (both 
+attacker + server side). Test on 2 
+virtual cameras. 
+M1+M4 Trust score drops when attack runs 
+Day 
+16 
+Build attack3_lateral.py. Test GNN 
+detection. Verify new edges appear in 
+D3 graph. 
+M2+M3 D3 graph shows new edges during attack 
+Day 
+17 
+Build attack4_exfil.py. Test CUSUM 
+accumulation over 5 minutes. 
+M1 CUSUM fires after 4 minutes, alert raised 
+Day 
+18 
+Test nmap recon on actual LAN. Verify 
+detection. Build quarantine command 
+(MQTT → ESP32 LED). 
+M3 Physical ESP32 LED turns red on quarantine 
+Day 
+19 
+Build attack5_coordinated.py. Run full 
+coordinated attack. Watch dashboard. 
+M2+M4 Full dashboard red/orange during 
+coordinated attack 
+Day 
+20 
+Build SHAP explainability + Threat 
+Intelligence Brief for alert panel. 
+M1+M3 Alerts show feature attribution 
+Day 
+21 
+Full dress rehearsal. All 4 members run 
+entire demo. Time it. Fix issues. 
+All Full demo runs in under 20 minutes with no 
+crashes 
+ 
+Week 4 — Contingency + Demo Day [Days 22-28] 
+Day Tasks Owner Done When 
+Day 
+22-
+23 
+Buffer days: fix anything broken from 
+Week 3. Polish dashboard visuals. 
+All Smooth, stable demo 
+Day 
+24 
+Create startup batch file. Document IP 
+addresses. Create demo cheat sheet. 
+M1 start_server.bat works first try 
+Day 
+25 
+Practice demo 3 times with timer. 
+Assign judge Q&A answers. 
+All All members confident in their role 
+Day 
+26 
+Demo day setup: arrive 30 min early, 
+connect hotspot, verify all systems. 
+All Dashboard live before judges arrive 
+Day 
+27-
+28 
+Demo day + post-demo documentation. All Done! 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 42 
+Appendix A — Full IP/Port Reference 
+Service Host Port Used By 
+Mobile Hotspot 192.168.43.1 — All devices connect to this 
+Server Laptop 192.168.43.XXX — Find with: ipconfig on server 
+Attacker Laptop 192.168.43.YYY — Find with: ipconfig on attacker 
+Mosquitto MQTT Server laptop 1883 All ESP32s, FastAPI, attacker scripts 
+FastAPI REST Server laptop 8000 React dashboard, attack scripts 
+FastAPI WebSocket Server laptop 8001 React dashboard live updates 
+React Dashboard Server laptop 3000 Any browser on the LAN 
+PostgreSQL Server laptop 5432 FastAPI internal only 
+InfluxDB Server laptop 8086 FastAPI internal only 
+Redis Server laptop (WSL) 6379 FastAPI internal only 
+Fake C2 port (demo) Server laptop 4444 attack2_beaconing.py only 
+Fake exfil port (demo) Server laptop 8080 attack4_exfil.py only 
+  
+DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
+Confidential — Team Use Only Page 43 
+Appendix B — Troubleshooting Guide 
+Problem Likely Cause Fix 
+ESP32 won't connect to 
+WiFi 
+Wrong SSID or password in 
+config.h 
+Reflash with correct credentials. Mobile hotspot 
+SSID is case-sensitive. 
+ESP32 won't connect to 
+MQTT 
+Server laptop IP changed 
+after reconnect 
+Run ipconfig on server. Update MQTT_BROKER in 
+config.h. Reflash boards. 
+ESP32-CAM won't flash GPIO0 not held to GND 
+during upload 
+Hold GPIO0 pin to GND BEFORE pressing upload. 
+Release after upload starts. 
+DHT11 reads NaN Wiring issue or missing pull-
+up resistor 
+Check 10k pull-up between data pin and 3.3V. Try 
+different GPIO pin. 
+MQTT messages not 
+arriving 
+Windows Firewall blocking 
+port 1883 
+Run netsh firewall command (see Part 4.5). Check 
+Mosquitto is running. 
+Trust scores all 0.0 ML models not trained / not 
+found 
+Run train_vae.py first. Check models_trained/ folder 
+exists. 
+Dashboard not updating WebSocket not connected Check FastAPI is running on port 8001. Check 
+browser console for errors. 
+Virtual devices not 
+publishing 
+Wrong MQTT_BROKER IP 
+in simulator.py 
+Set MQTT_BROKER = 'localhost' if running on 
+server laptop itself. 
+nmap scan detected 
+nothing 
+ESP32s use different 
+subnet 
+Verify all devices on same hotspot. Run nmap -sn on 
+correct /24 subnet. 
+Attack script crashes Import error — wrong 
+directory 
+Run all attack scripts from backend/ directory with 
+venv activated. 
+Relay clicking randomly Floating GPIO pin Add 10k pull-down resistor on RELAY_PIN to GND. 
+ 
+Demo Day Emergency Procedures 
+ESP32 LED stuck on wrong color: Send manual MQTT command: 
+  mosquitto_pub -h localhost -t 'devicedna/command/cam_01' -m '{"action":"release","trust_score":95}' 
+ 
+Dashboard frozen: Refresh browser. WebSocket auto-reconnects within 3 seconds. 
+ 
+FastAPI crashed: Re-run: uvicorn main:app --host 0.0.0.0 --port 8000 --reload 
+ 
+ESP32 disconnected: Press reset button on board. It reconnects to MQTT automatically. 
+ 
+Mobile hotspot lost: Have backup hotspot credentials ready in config.h as comments. 
+  Use phone 2 as backup hotspot with SAME SSID and password. 
+ 
+Attack script not working: Run behavioral injection only (no real network attack). 
+  The virtual device mutation alone creates sufficient dashboard drama for judges. 
+ 
+DeviceDNA — Eclipse Hackathon 2025  |  Hardware PRD  |  4 ESP32 + 46 Virtual + 2 Laptops  |  Real Attacks. Real Detection. Real 
+Intelligence. 

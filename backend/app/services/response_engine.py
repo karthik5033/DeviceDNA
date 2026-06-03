@@ -1,70 +1,74 @@
-"""
-Autonomous Response Engine for DeviceDNA.
-
-Provides a structured library of automated response actions (isolate, sandbox,
-forensic capture, IP block) that are triggered by threshold rules after each
-trust-score evaluation cycle.  Every action is idempotent within its TTL window
-— Redis keys are checked before firing so the same action is never spammed on
-consecutive 5-second evaluation ticks.
-"""
-
 import logging
 import json
+import time
 from datetime import datetime, timezone
 
 from app.db.redis import redis_client
 from app.api.ws import sio
+from app.db.postgres import AsyncSessionLocal
+from app.db.models import ResponseAuditLog
+from app.services.mqtt_dispatcher import mqtt_dispatcher
 
 logger = logging.getLogger(__name__)
 
-# ── TTL constants (seconds) ──────────────────────────────────────────────────
-ISOLATION_TTL   = 3600      # 1 hour
-SANDBOX_TTL     = 1800      # 30 minutes
-FORENSIC_TTL    = 7200      # 2 hours
-BLOCK_IP_TTL    = 86400     # 24 hours
-
+# TTL constants (seconds)
+ISOLATION_TTL = 3600      # 1 hour
+SANDBOX_TTL = 1800        # 30 minutes
+RATE_LIMIT_TTL = 1800     # 30 minutes
+HONEYPOT_TTL = 3600       # 1 hour
+FORENSIC_TTL = 7200       # 2 hours
+BLOCK_IP_TTL = 86400      # 24 hours
+HITL_QUEUE_TTL = 120      # 2 minutes countdown
 
 class ResponseEngine:
     """
-    Structured response-action library.
-
-    Each public method:
-      1. Checks whether the action is already active (Redis key exists).
-      2. If not, sets the Redis key with the appropriate TTL.
-      3. Emits a Socket.IO event so the SOC dashboard updates in real time.
-      4. Logs the action with device_id, action name, and timestamp.
+    Enterprise-grade Response Engine for DeviceDNA.
+    Implements a 5-Tier risk classification system, automated and HITL-approved responses,
+    PostgreSQL audit logging, and MQTT dispatching.
     """
 
-    # ── Action Methods ───────────────────────────────────────────────────────
+    async def _log_action_to_db(self, device_id: str, trigger_score: float, response_tier: int, action: str, hitl_decision: str):
+        """Helper to write response audit records to PostgreSQL."""
+        try:
+            async with AsyncSessionLocal() as session:
+                audit = ResponseAuditLog(
+                    device_id=device_id,
+                    trigger_score=trigger_score,
+                    response_tier=response_tier,
+                    action=action,
+                    hitl_decision=hitl_decision
+                )
+                session.add(audit)
+                await session.commit()
+            logger.info(f"Audit Logged: device={device_id} | action={action} | tier={response_tier} | decision={hitl_decision}")
+        except Exception as e:
+            logger.error(f"Failed to write ResponseAuditLog for {device_id}: {e}")
 
-    async def isolate_device(self, device_id: str) -> bool:
-        """
-        Network-level device isolation.
-        Sets  response:isolated:{device_id} = true   TTL 1 hr
-        Emits isolate_device WebSocket event.
-        Returns True if the action was newly taken, False if already active.
-        """
-        key = f"response:isolated:{device_id}"
+    # ── Action Execution Methods ──────────────────────────────────────────────
+
+    async def rate_limit_device(self, device_id: str, score: float) -> bool:
+        """Apply Tier 2: Bandwidth rate limiting (automatic)."""
+        key = f"response:rate_limit:{device_id}"
         if redis_client.exists(key):
             return False
 
-        redis_client.setex(key, ISOLATION_TTL, "true")
-        await sio.emit("isolate_device", {
+        redis_client.setex(key, RATE_LIMIT_TTL, "true")
+        await sio.emit("rate_limit_device", {
             "device_id": device_id,
-            "action": "isolate",
+            "action": "rate_limit",
             "timestamp": _utcnow_iso(),
+            "score": score
         })
-        logger.warning(
-            f"🚨 RESPONSE ACTION — isolate_device | device={device_id} | ts={_utcnow_iso()}"
-        )
+        
+        # Publish MQTT command (simulate rate limiting by adding 500ms delay in simulator)
+        mqtt_dispatcher.dispatch_command(device_id, "rate_limit", relay_open=False, rate_delay_ms=500)
+        
+        await self._log_action_to_db(device_id, score, 2, "rate_limit", "automatic")
+        logger.warning(f"⚠️ RESPONSE ACTION [Tier 2] — rate_limit | device={device_id} | score={score:.2f}")
         return True
 
-    async def sandbox_device(self, device_id: str) -> bool:
-        """
-        Move device into a sandboxed VLAN for observation.
-        Sets  response:sandboxed:{device_id} = true   TTL 30 min
-        Emits sandbox_device WebSocket event.
-        """
+    async def sandbox_device(self, device_id: str, score: float) -> bool:
+        """Apply Tier 3: Sandboxing / VLAN redirect (automatic)."""
         key = f"response:sandboxed:{device_id}"
         if redis_client.exists(key):
             return False
@@ -74,18 +78,60 @@ class ResponseEngine:
             "device_id": device_id,
             "action": "sandbox",
             "timestamp": _utcnow_iso(),
+            "score": score
         })
-        logger.warning(
-            f"🔒 RESPONSE ACTION — sandbox_device | device={device_id} | ts={_utcnow_iso()}"
-        )
+        
+        # Publish MQTT command
+        mqtt_dispatcher.dispatch_command(device_id, "sandbox", relay_open=False)
+        
+        await self._log_action_to_db(device_id, score, 3, "sandbox", "automatic")
+        logger.warning(f"🔒 RESPONSE ACTION [Tier 3] — sandbox | device={device_id} | score={score:.2f}")
+        return True
+
+    async def isolate_device(self, device_id: str, score: float, hitl_decision: str = "automatic") -> bool:
+        """Apply Tier 4: Isolation / Quarantine (HITL approved or fallback)."""
+        key = f"response:isolated:{device_id}"
+        if redis_client.exists(key):
+            return False
+
+        redis_client.setex(key, ISOLATION_TTL, "true")
+        await sio.emit("isolate_device", {
+            "device_id": device_id,
+            "action": "isolate",
+            "timestamp": _utcnow_iso(),
+            "score": score
+        })
+        
+        # Publish MQTT command (Open relay)
+        mqtt_dispatcher.dispatch_command(device_id, "quarantine", relay_open=True)
+        
+        await self._log_action_to_db(device_id, score, 4, "quarantine", hitl_decision)
+        logger.warning(f"🚨 RESPONSE ACTION [Tier 4] — quarantine/isolate | device={device_id} | score={score:.2f} | decision={hitl_decision}")
+        return True
+
+    async def honeypot_device(self, device_id: str, score: float, hitl_decision: str = "automatic") -> bool:
+        """Apply Tier 5: Honeypot redirect (HITL approved or fallback)."""
+        key = f"response:honeypot:{device_id}"
+        if redis_client.exists(key):
+            return False
+
+        redis_client.setex(key, HONEYPOT_TTL, "true")
+        await sio.emit("honeypot_device", {
+            "device_id": device_id,
+            "action": "honeypot",
+            "timestamp": _utcnow_iso(),
+            "score": score
+        })
+        
+        # Publish MQTT command
+        mqtt_dispatcher.dispatch_command(device_id, "honeypot", relay_open=False)
+        
+        await self._log_action_to_db(device_id, score, 5, "honeypot", hitl_decision)
+        logger.warning(f"🍯 RESPONSE ACTION [Tier 5] — honeypot | device={device_id} | score={score:.2f} | decision={hitl_decision}")
         return True
 
     async def enable_forensic_capture(self, device_id: str) -> bool:
-        """
-        Start full-packet forensic capture for the device.
-        Sets  response:forensic:{device_id} = true   TTL 2 hr
-        Emits forensic_capture WebSocket event.
-        """
+        """Enable full-packet forensic capture."""
         key = f"response:forensic:{device_id}"
         if redis_client.exists(key):
             return False
@@ -94,129 +140,123 @@ class ResponseEngine:
         await sio.emit("forensic_capture", {
             "device_id": device_id,
             "action": "forensic_capture",
-            "timestamp": _utcnow_iso(),
+            "timestamp": _utcnow_iso()
         })
-        logger.warning(
-            f"🔬 RESPONSE ACTION — enable_forensic_capture | device={device_id} | ts={_utcnow_iso()}"
-        )
+        logger.warning(f"🔬 FORENSIC ACTION — capture enabled | device={device_id}")
         return True
 
-    async def block_ip(self, device_id: str, dst_ip: str) -> bool:
-        """
-        Firewall-level IP block originating from a specific device context.
-        Sets  response:blocked_ip:{dst_ip} = {device_id}   TTL 24 hr
-        Emits ip_blocked WebSocket event.
-        """
-        key = f"response:blocked_ip:{dst_ip}"
-        if redis_client.exists(key):
-            return False
-
-        redis_client.setex(key, BLOCK_IP_TTL, device_id)
-        await sio.emit("ip_blocked", {
-            "device_id": device_id,
-            "dst_ip": dst_ip,
-            "action": "block_ip",
-            "timestamp": _utcnow_iso(),
-        })
-        logger.warning(
-            f"🛑 RESPONSE ACTION — block_ip | device={device_id} | dst_ip={dst_ip} | ts={_utcnow_iso()}"
-        )
-        return True
-
-    # ── Automatic Trigger Rules ──────────────────────────────────────────────
+    # ── Evaluation / Risk Classification ──────────────────────────────────────
 
     async def evaluate_triggers(
         self,
         device_id: str,
-        trust_score: float,
+        trust_score: float, # Effective trust score
         gnn_score: float,
+        shap_evidence: dict = None
     ) -> list[str]:
         """
-        Apply the automatic response rules *after* the trust engine computes a
-        new score.  Rules are evaluated in priority order; each action fires at
-        most once per TTL window.
-
-        Returns a list of action names that were newly triggered this cycle.
+        Maps the effective trust score to the 5-Tier Risk Classification System,
+        automatically triggering Tiers 2-3 and queuing Tiers 4-5 for HITL approval.
         """
         triggered: list[str] = []
 
-        # ── Retrieve previous score for delta calculation ────────────────────
-        prev_key = f"response:prev_score:{device_id}"
-        prev_raw = redis_client.get(prev_key)
-        prev_score: float | None = None
-        if prev_raw is not None:
-            try:
-                prev_score = float(prev_raw)
-            except (ValueError, TypeError):
-                prev_score = None
+        # ── 1. Check for active manual overrides ──────────────────────────────
+        override_key = f"response:override:{device_id}"
+        if redis_client.exists(override_key):
+            logger.info(f"Skipping triggers for {device_id}: Active human override/ignore key present.")
+            return triggered
 
-        # Always store current score for the next cycle's delta computation
-        redis_client.set(prev_key, str(trust_score))
-
-        # ── Rule 1: trust_score < 20 → isolate ──────────────────────────────
-        if trust_score < 20:
-            if await self.isolate_device(device_id):
-                triggered.append("isolate_device")
-
-        # ── Rule 2: 20 ≤ trust_score < 40 → sandbox ─────────────────────────
-        elif trust_score < 40:
-            if await self.sandbox_device(device_id):
-                triggered.append("sandbox_device")
-
-        # ── Rule 3: trust drops > 30 points in one cycle → forensic ─────────
-        if prev_score is not None and (prev_score - trust_score) > 30:
-            if await self.enable_forensic_capture(device_id):
-                triggered.append("enable_forensic_capture")
-
-        # ── Rule 4: gnn_score > 0.85 → forensic ─────────────────────────────
+        # ── 2. Run Forensic Capture Triggers (independent of tiers) ──────────
+        # Forensic capture if GNN score is extremely elevated
         if gnn_score > 0.85:
             if await self.enable_forensic_capture(device_id):
                 triggered.append("enable_forensic_capture")
 
-        if triggered:
-            logger.info(
-                f"Response triggers fired for {device_id}: {triggered} "
-                f"(trust={trust_score:.2f}, gnn={gnn_score:.4f})"
-            )
+        # ── 3. Apply 5-Tier Risk Classification mapping ──────────────────────
+        
+        # Tier 1: Monitor (Score >= 80)
+        if trust_score >= 80:
+            pass  # Handled by RecoveryManager to release restrictions
+
+        # Tier 2: Rate Limit (60 <= Score < 80)
+        elif trust_score >= 60:
+            if await self.rate_limit_device(device_id, trust_score):
+                triggered.append("rate_limit_device")
+
+        # Tier 3: Sandbox (40 <= Score < 60)
+        elif trust_score >= 40:
+            if await self.sandbox_device(device_id, trust_score):
+                triggered.append("sandbox_device")
+
+        # Tier 4: Quarantine (20 <= Score < 40)
+        elif trust_score >= 20:
+            action_taken = await self._enqueue_hitl(device_id, 4, "quarantine", trust_score, shap_evidence)
+            if action_taken:
+                triggered.append("quarantine_pending")
+
+        # Tier 5: Honeypot (Score < 20)
+        else:
+            action_taken = await self._enqueue_hitl(device_id, 5, "honeypot", trust_score, shap_evidence)
+            if action_taken:
+                triggered.append("honeypot_pending")
 
         return triggered
 
-    # ── Status Query ─────────────────────────────────────────────────────────
+    async def _enqueue_hitl(self, device_id: str, tier: int, action: str, score: float, shap_evidence: dict) -> bool:
+        """Pushes high-risk actions (Tier 4 & 5) into the HITL Redis pending queue."""
+        pending_key = f"response:pending:{device_id}"
+        
+        # Check if already enqueued or already isolated/honeypotted
+        if redis_client.exists(pending_key):
+            return False
+            
+        active_key = f"response:isolated:{device_id}" if tier == 4 else f"response:honeypot:{device_id}"
+        if redis_client.exists(active_key):
+            return False
+
+        now = time.time()
+        expires_at = now + HITL_QUEUE_TTL
+        
+        payload = {
+            "device_id": device_id,
+            "target_tier": tier,
+            "action": action,
+            "trigger_score": score,
+            "timestamp": _utcnow_iso(),
+            "expires_at": expires_at,
+            "shap_evidence": shap_evidence or {}
+        }
+
+        # Store in Redis with 120s TTL
+        redis_client.setex(pending_key, HITL_QUEUE_TTL, json.dumps(payload))
+        
+        # Emit WebSocket to dashboard
+        await sio.emit("hitl_pending", payload)
+        logger.warning(f"⏳ HITL ENQUEUED [Tier {tier}] — {action} pending approval for device={device_id} | score={score:.2f}")
+        return True
+
+    # ── Status Query ──────────────────────────────────────────────────────────
 
     @staticmethod
     def get_device_response_status(device_id: str) -> dict:
-        """
-        Read the current active response flags for a device directly from
-        Redis.  No database query needed.
-        """
-        isolated = redis_client.exists(f"response:isolated:{device_id}") == 1
+        """Read the active response states directly from Redis."""
+        rate_limited = redis_client.exists(f"response:rate_limit:{device_id}") == 1
         sandboxed = redis_client.exists(f"response:sandboxed:{device_id}") == 1
+        isolated = redis_client.exists(f"response:isolated:{device_id}") == 1
+        honeypot = redis_client.exists(f"response:honeypot:{device_id}") == 1
         forensic = redis_client.exists(f"response:forensic:{device_id}") == 1
-
-        # Scan for any blocked IPs associated with this device
-        blocked_ips: list[str] = []
-        cursor = "0"
-        while True:
-            cursor, keys = redis_client.scan(
-                cursor=cursor,
-                match="response:blocked_ip:*",
-                count=100,
-            )
-            for key in keys:
-                val = redis_client.get(key)
-                if val == device_id:
-                    # Extract the IP from the key  response:blocked_ip:1.2.3.4
-                    ip = key.split("response:blocked_ip:")[-1]
-                    blocked_ips.append(ip)
-            if cursor == 0 or cursor == "0":
-                break
+        
+        pending_raw = redis_client.get(f"response:pending:{device_id}")
+        pending = json.loads(pending_raw) if pending_raw else None
 
         return {
             "device_id": device_id,
-            "isolated": isolated,
+            "rate_limited": rate_limited,
             "sandboxed": sandboxed,
+            "isolated": isolated,
+            "honeypot": honeypot,
             "forensic_capture": forensic,
-            "blocked_ips": blocked_ips,
+            "pending_approval": pending
         }
 
 
@@ -224,6 +264,5 @@ class ResponseEngine:
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-
-# Singleton
+# Singleton instance
 response_engine = ResponseEngine()

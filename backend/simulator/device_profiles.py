@@ -124,22 +124,53 @@ DEVICE_PROFILES: Dict[str, Dict[str, Any]] = {
 # Generate 50 devices based on distribution
 def generate_fleet():
     fleet = []
+    
+    # 1. Add 5 Physical ESP32 Devices (Observed behavior)
+    physical_specs = [
+        ('cam_01', 'Camera Node (ESP32-CAM)', 'camera'),
+        ('sensor_01', 'Sensor Node (DHT11)', 'sensor'),
+        ('motion_01', 'Motion Node (PIR)', 'access_control'),
+        ('gateway_01', 'Gateway Node (Relay)', 'access_control'),
+        ('cam_02', 'Camera Node 2 (ESP32-CAM)', 'camera')
+    ]
+    
+    for dev_id, name, d_class in physical_specs:
+        vlan = DEVICE_PROFILES[d_class]['vlan']
+        fleet.append({
+            'id': dev_id,
+            'name': name,
+            'device_class': d_class,
+            'mac_address': generate_mac(),
+            'ip_address': generate_ip(vlan),
+            'vlan': vlan,
+            'status': 'online',
+            'internal_peers': random.sample(KNOWN_INTERNAL_SERVERS, 1) + [GATEWAYS[vlan//10 - 1]],
+            'external_peers': random.sample(KNOWN_EXTERNAL_IPS, k=random.randint(1, 3)),
+            'is_physical': True
+        })
+        
+    # 2. Add 45 Virtual Devices (Synthetic behavior)
     device_id = 1
     
     for device_class, config in DEVICE_PROFILES.items():
         vlan = config['vlan']
         
-        for i in range(config['count']):
+        # Determine how many virtual devices to make for this class (total minus physical)
+        physical_count = sum(1 for p in physical_specs if p[2] == device_class)
+        virtual_count = config['count'] - physical_count
+        
+        for i in range(virtual_count):
             device = {
                 'id': f"SIM-{device_id:04d}",
-                'name': f"{device_class.capitalize()} {i+1}",
+                'name': f"{device_class.capitalize()} V-{i+1}",
                 'device_class': device_class,
                 'mac_address': generate_mac(),
                 'ip_address': generate_ip(vlan),
                 'vlan': vlan,
                 'status': 'online',
                 'internal_peers': random.sample(KNOWN_INTERNAL_SERVERS, 1) + [GATEWAYS[vlan//10 - 1]],
-                'external_peers': random.sample(KNOWN_EXTERNAL_IPS, k=random.randint(1, 3))
+                'external_peers': random.sample(KNOWN_EXTERNAL_IPS, k=random.randint(1, 3)),
+                'is_physical': False
             }
             fleet.append(device)
             device_id += 1

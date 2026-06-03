@@ -7,6 +7,10 @@ from aiokafka import AIOKafkaConsumer
 from app.api.ws import sio
 from app.services.feature_extraction import extract_features
 from app.services.trust_engine import master_trust_engine
+from app.ml.gnn.scoring import gnn_scorer
+from simulator.device_profiles import FLEET
+
+IP_TO_DEVICE_ID = {d['ip_address']: d['id'] for d in FLEET}
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +81,21 @@ class TelemetryService:
                 })
                 
             if 'src_ip' in flow:
+                src_ip = flow.get('src_ip')
+                dst_ip = flow.get('dst_ip')
+                
+                # Update frontend visualization map
                 await sio.emit('telemetry_ping', {
-                    'source': flow.get('src_ip'),
-                    'target': flow.get('dst_ip'),
+                    'source': src_ip,
+                    'target': dst_ip,
                     'bytes': flow.get('bytes')
                 })
+                
+                # Build real GNN edges based on observed communication
+                src_id = flow.get('device_id') or IP_TO_DEVICE_ID.get(src_ip)
+                dst_id = IP_TO_DEVICE_ID.get(dst_ip)
+                if src_id and dst_id:
+                    gnn_scorer.update_graph(src_id, dst_id)
 
             features = extract_features(
                 flow.get('device_id', 'unknown'),

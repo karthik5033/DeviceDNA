@@ -7,6 +7,8 @@ from app.ml.lstm.scoring import lstm_scorer
 from app.ml.gnn.scoring import gnn_scorer
 from app.services.drift_engine import cusum_engine
 from app.services.response_engine import response_engine
+from app.services.trust_decay import record_anomaly_event, get_decay_multiplier
+from app.services.recovery_manager import evaluate_recovery
 from app.db.influxdb import influx_db
 from app.db.redis import redis_client
 from app.db.postgres import AsyncSessionLocal
@@ -129,15 +131,8 @@ class TrustScoreEngine:
             lstm_anomaly = lstm_scorer.score(device_id, self.device_history[device_id])
 
             # 5. GNN Graph Anomaly Detection (0 -> 1.0)
-            # Build co-evaluation proximity edges: devices evaluated within the same
-            # Kafka batch window are likely communicating in the same time slice
-            for recent_id in self._recent_eval_window[-10:]:
-                if recent_id != device_id:
-                    gnn_scorer.update_graph(device_id, recent_id)
-            self._recent_eval_window.append(device_id)
-            if len(self._recent_eval_window) > 50:
-                self._recent_eval_window = self._recent_eval_window[-50:]
-
+            # Graph edges are now driven strictly by real Kafka telemetry (src_ip -> dst_ip)
+            # inside telemetry.py, instead of co-evaluation proximity here.
             gnn_anomaly = gnn_scorer.score(device_id, current_features)
 
             # Combine the structural algorithms into the ensemble pillar
@@ -207,23 +202,29 @@ class TrustScoreEngine:
                 except Exception:
                     pass
             
-            log_msg = f"Trust Computed - Device: {device_id} | VAE: {vae_dev:.4f} | IF: {if_anomaly:.4f} | LSTM: {lstm_anomaly:.4f} | GNN: {gnn_anomaly:.4f} | Penalty: {penalty_percentage:.4f} | Final: {final_trust_score:.2f}"
+            # Calculate decay and effective trust score
+            decay_multiplier = get_decay_multiplier(device_id)
+            effective_trust_score = final_trust_score * decay_multiplier
+
+            log_msg = f"Trust Computed - Device: {device_id} | VAE: {vae_dev:.4f} | IF: {if_anomaly:.4f} | LSTM: {lstm_anomaly:.4f} | GNN: {gnn_anomaly:.4f} | Penalty: {penalty_percentage:.4f} | Raw: {final_trust_score:.2f} | Decayed: {effective_trust_score:.2f}"
             logger.info(log_msg)
             
             # Status assignment mapping directly to UI
-            if final_trust_score >= 80:
+            if effective_trust_score >= 80:
                 status = "trusted"
-            elif final_trust_score >= 60:
+            elif effective_trust_score >= 60:
                 status = "guarded"
-            elif final_trust_score >= 40:
+            elif effective_trust_score >= 40:
                 status = "suspicious"
             else:
                 status = "critical"
 
             score_profile = {
                 "device_id": device_id,
-                "trust_score": float(final_trust_score),
+                "trust_score": float(effective_trust_score),
                 "status": status,
+                "raw_score": float(final_trust_score),
+                "decay_multiplier": float(decay_multiplier),
                 "pillars": {
                     "digital_twin": float(vae_dev),
                     "anomaly_ensemble": float(ensemble_score),
@@ -236,7 +237,6 @@ class TrustScoreEngine:
                 }
             }
             
-            # NOTE: Missing feature - Persisting this score to InfluxDB
             try:
                 previous_redis_data = redis_client.get(f"trust:{device_id}")
                 previous_score = None
@@ -244,7 +244,9 @@ class TrustScoreEngine:
                     previous_score = json.loads(previous_redis_data).get("score")
 
                 redis_data = {
-                    "score": float(final_trust_score),
+                    "score": float(effective_trust_score),
+                    "raw_score": float(final_trust_score),
+                    "decay_multiplier": float(decay_multiplier),
                     "device_id": device_id,
                     "device_class": device_class,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -265,18 +267,21 @@ class TrustScoreEngine:
                 except Exception as e:
                     logger.error(f"Failed to persist trust score to InfluxDB for {device_id}: {e}")
                 
-                # --- Alert Generation Logic ---
+                # --- Alert Generation Logic & Decay Anomaly Registration ---
                 alert_severity = None
                 alert_msg = None
-                if final_trust_score < 40:
+                if effective_trust_score < 40:
                     alert_severity = "critical"
-                    alert_msg = f"Device {device_id} trust score critically low ({final_trust_score:.2f})."
-                elif final_trust_score < 60:
+                    alert_msg = f"Device {device_id} trust score critically low ({effective_trust_score:.2f})."
+                    record_anomaly_event(device_id)
+                elif effective_trust_score < 60:
                     alert_severity = "high"
-                    alert_msg = f"Device {device_id} trust score dropped to high risk ({final_trust_score:.2f})."
-                elif previous_score is not None and (previous_score - final_trust_score) > 15:
+                    alert_msg = f"Device {device_id} trust score dropped to high risk ({effective_trust_score:.2f})."
+                    record_anomaly_event(device_id)
+                elif previous_score is not None and (previous_score - effective_trust_score) > 15:
                     alert_severity = "medium"
-                    alert_msg = f"Device {device_id} trust score dropped sharply by {previous_score - final_trust_score:.2f} points."
+                    alert_msg = f"Device {device_id} trust score dropped sharply by {previous_score - effective_trust_score:.2f} points."
+                    record_anomaly_event(device_id)
 
                 if alert_severity:
                     tib_data = None
@@ -285,8 +290,8 @@ class TrustScoreEngine:
                             device_id=device_id,
                             device_class=device_class,
                             feature_vector=current_features,
-                            trust_score=float(final_trust_score),
-                            prev_trust_score=float(previous_score) if previous_score is not None else float(final_trust_score),
+                            trust_score=float(effective_trust_score),
+                            prev_trust_score=float(previous_score) if previous_score is not None else float(effective_trust_score),
                             vae_score=float(vae_dev),
                             if_score=float(if_anomaly),
                             lstm_score=float(lstm_anomaly),
@@ -301,7 +306,7 @@ class TrustScoreEngine:
                         severity=alert_severity,
                         alert_type="trust_score_drop",
                         message=alert_msg,
-                        trust_score=float(final_trust_score),
+                        trust_score=float(effective_trust_score),
                         vae_score=float(vae_dev),
                         if_score=float(if_anomaly),
                         lstm_score=float(lstm_anomaly),
@@ -332,13 +337,32 @@ class TrustScoreEngine:
 
                 # --- Autonomous Response Engine Triggers ---
                 try:
+                    shap_evidence = {
+                        "device_class": device_class,
+                        "features": {
+                            "total_flows": float(current_features[0]) if len(current_features) > 0 else 0.0,
+                            "total_bytes": float(current_features[1]) if len(current_features) > 1 else 0.0,
+                            "avg_packet_size": float(current_features[3]) if len(current_features) > 3 else 0.0,
+                            "external_ratio": float(current_features[13]) if len(current_features) > 13 else 0.0,
+                            "anomaly_ensemble": float(ensemble_score),
+                            "vae_score": float(vae_dev),
+                            "gnn_score": float(gnn_anomaly)
+                        }
+                    }
                     await response_engine.evaluate_triggers(
                         device_id=device_id,
-                        trust_score=float(final_trust_score),
+                        trust_score=float(effective_trust_score),
                         gnn_score=float(gnn_anomaly),
+                        shap_evidence=shap_evidence
                     )
                 except Exception as resp_err:
                     logger.error(f"Response engine trigger error for {device_id}: {resp_err}")
+
+                # --- Recovery Manager Hook ---
+                try:
+                    evaluate_recovery(device_id, final_trust_score, effective_trust_score)
+                except Exception as rec_err:
+                    logger.error(f"Recovery manager evaluation error for {device_id}: {rec_err}")
 
             except Exception as e:
                 logger.error(f"Failed to process trust score storage/alerts for {device_id}: {e}")
