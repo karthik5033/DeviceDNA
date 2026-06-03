@@ -13,10 +13,13 @@ logging.basicConfig(
 )
 
 from app.services.telemetry import TelemetryService
-from app.api.routes import trust, alerts, policy, response
+from app.services.hardware_registry import registry_maintenance_loop
+from app.api.routes import trust, alerts, policy, response, hardware_health
 from app.db.influxdb import influx_db
 from app.db.postgres import engine, Base
 from app.api.ws import sio
+
+import asyncio
 
 telemetry_service = TelemetryService(influx_db)
 
@@ -27,8 +30,13 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     # Startup: Run the Kafka flow consumer in the background
     await telemetry_service.start()
+    
+    # Startup: Run the Hardware Registry stale check loop
+    app.state.registry_task = asyncio.create_task(registry_maintenance_loop())
+    
     yield
     # Shutdown: Clean up connections
+    app.state.registry_task.cancel()
     await telemetry_service.stop()
     await influx_db.close()
 
@@ -44,6 +52,7 @@ fastapi_app.include_router(trust.router)
 fastapi_app.include_router(alerts.router, prefix="/api")
 fastapi_app.include_router(policy.router, prefix="/api")
 fastapi_app.include_router(response.router)
+fastapi_app.include_router(hardware_health.router, prefix="/api/hardware", tags=["hardware"])
 
 # Configure CORS
 fastapi_app.add_middleware(

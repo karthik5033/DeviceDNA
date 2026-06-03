@@ -7,6 +7,7 @@ from aiokafka import AIOKafkaConsumer
 from app.api.ws import sio
 from app.services.feature_extraction import extract_features
 from app.services.trust_engine import master_trust_engine
+from app.services.hardware_registry import mark_seen
 from app.ml.gnn.scoring import gnn_scorer
 from simulator.device_profiles import FLEET
 
@@ -66,6 +67,15 @@ class TelemetryService:
 
     async def _process_flow(self, flow):
         try:
+            device_id = flow.get('device_id')
+            device_class = flow.get('device_class')
+            
+            # Register device as online
+            if device_id:
+                # We offload it or await it directly
+                # It does an async redis set, so awaiting is fine
+                await mark_seen(device_id, device_class)
+                
             if flow.get('is_anomaly') or "policy_violation" in str(flow).lower():
                 await sio.emit('new_alert', {
                     'id': flow.get('flow_id', 'ALT-LIVE'),
