@@ -1,0 +1,966 @@
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 1  
+ 
+ 
+DeviceDNA  
+AI-Powered IoT Cybersecurity Intelligence Platform  
+Eclipse Hackathon 2025  |  4th Semester Main EL  
+Autonomous  Explainable  Predictive  Enterprise -Grade  
+ 
+ 
+Technology Stack  
+GMVAE Hierarchical Model  |  Digital Twin Trust Scoring  |  CUSUM Drift  |  GNN Lateral  |  NLP Policy  
+ 
+Comprehensive Technical Documentation — Last Updated: May 2026  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 2 Table of Contents  
+Part 0  —  Simple Guide: What, Why, and How  
+Part 1  —  Product Requir ements Document (PRD)  
+Part 2  —  Technical Architecture & Technology Stack  
+Part 3  —  ML Models: Mathematics & Science  
+  3.1  The 14 -Dimensional Feature Vector  
+  3.2  GMVAE Hierarchical Anomaly Architecture (NEW — Core Innovation)  
+  3.3  Isolation Forest — Statistical Outlier Detection  
+  3.4  CUSUM Drift Engine  
+  3.5  LSTM — Temporal Sequence Anomaly Detection  
+  3.6  Graph Neural Network (GNN) — Network Topology Intelligence  
+  3.7  The 5 -Pillar Trust Score Engine  
+  3.8  Device DNA F ingerprinting  
+Part 4  —  Simulator, Frontend & Project Status  
+Appendix A  —  Architecture Diagrams  
+Appendix B  —  Quick -Reference Cheat Sheet  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 3 Part 0 — Simple Guide: What, Why, and How  
+0.1 What is DeviceDNA?  
+DeviceDNA is an AI -powered cybersecurity platform built specifically for the Internet of Things (IoT). 
+Imagine a massive network with thousands of smart devices — smart cameras, thermostats, medical 
+sensors, factory controllers. Because these devices often  lack traditional security software and run 
+constantly, hackers can easily compromise them and remain undetected for months.  
+ 
+DeviceDNA constantly monitors every device's network traffic, builds a Digital Twin of each device, and 
+assigns a real -time Trust Score (0 –100). The moment a device acts strangely, its trust score drops, an 
+alert fires, and the system can automatically isolate it.  
+ 
+The core AI innovation is a two -tier Gaussian Mixture Variational Autoencoder (GMVAE) — a Global 
+model that understands the entire network, and Specialized models per device class that understand fine -
+grained behavior. This hierarchical architecture makes stealth attacks extremely difficult to hide.  
+ 
+0.2 Trust Score — The Single Number That Matters  
+Score Range  Status  Meanin g Action  
+80 – 100 TRUSTED (Green)  Behavior matches Digital Twin 
+exactly  Monitor normally  
+60 – 79 GUARDED (Yellow)  Minor drift detected  Increase monitoring 
+frequency  
+40 – 59 SUSPICIOUS (Orange)  Significant anomaly signals  Alert SOC analyst  
+0 – 39 CRITICAL (Red)  Active attack likely  Autonomous isolation 
+triggered  
+ 
+Every device gets a score from 0 to 100, updated every 5 minutes. This score is computed by five ML 
+models working together — not a human writing rules.  
+ 
+0.3 Architecture — How It's Built (4 Layers)  
+Layer  Name  Technologies  
+Layer 4  SOC Dashboard (UI)  Next.js 14 · React 18 · D3.js · Socket.IO · Recharts · Tailwind CSS  
+Layer 3  ML Backend API  FastAPI · Socket.IO ASGI · GMVAE · Isolation Forest · CUSUM · 
+GNN · LSTM  
+Layer 2  Telemetry Simulator  device_profiles.py · traffic_generator.py · attack_scenarios.py (50 
+IoT Devices)  
+Layer 1  Data Infrastructure  PostgreSQL · InfluxDB · Redis · Apache Kafka · Zookeeper (Docker 
+Compose)  
+ 
+0.4 Why Do We Need ML? (Not Rules)  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 4 Hackers today are smart. They don't trip alarms by aggressively crashing systems. Instead, they execute 
+stealth attacks — stealing a few kilobytes per day, using allowed ports, staying below every threshold. 
+Rules -based firewalls fail completely here. Mach ine Learning is required because it learns the subtle 
+pattern of 'normalcy' for each device and flags anything that deviates — even if no single reading looks 
+wrong.  
+ 
+ML Model  Why It's Needed  What It Catches  
+Global GMVAE  Understands whole -network behavior; 
+routes to specialist models  Cross -device anomalies, ambiguous device 
+behavior  
+Specialized GMVAE  Per-device -class deep behavioral model  Fine-grained deviations from class -normal 
+patterns  
+Isolation Forest  Detects structural outliers in high -
+dimensional space  Sudden, dramatic behavioral changes  
+CUSUM  Accumulates deviations — catches slow 
+drift Stealthy gradual attacks over days  
+LSTM  Learns time -sequential patterns over 1 -
+hour windows  Temporal trend anomalies  
+GNN (GraphSAGE)  Models inter -device communication 
+graph  Lateral movement, botnet formation  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 5 Part 1 — Product Requirements Document (PRD)  
+1. Executive Summary  
+DeviceDNA is a software -defined cybersecurity intelligence platform purpose -built for IoT network 
+security. Traditional perimeter -based security (firewalls, signature detection) has become obsolete — IoT 
+devices are compromised in ways that go undetected f or weeks. DeviceDNA applies a continuous, AI -
+powered behavioral intelligence layer across every device, learning what each device should be doing 
+and comparing reality against that model at every moment.  
+ 
+The core architectural innovation is a Hierarchical  GMVAE (Gaussian Mixture Variational Autoencoder) 
+system that replaces the simple VAE from earlier designs. A Global GMVAE learns network -wide 
+behavior and routes telemetry to Specialized GMVAEs trained per device class. The comparison between 
+global and l ocal understanding creates a powerful multi -signal anomaly detection engine that is extremely 
+difficult for adversaries to fool simultaneously.  
+ 
+Four Core Capabilities  
+• Dynamic Trust Scoring: Real -time 0 –100 score per device, updated every 5 minutes based o n 
+behavioral conformance, policy compliance, drift magnitude, peer comparison, and threat intel.  
+• Policy Conformance & Drift Intelligence: Detects both hard violations (immediate, binary rule 
+breaks) and soft drift (gradual, stealthy behavioral change) usin g CUSUM and LSTM.  
+• Evidence -First Explainability: Every alert is accompanied by a human -readable Threat 
+Intelligence Brief explaining what changed, why it matters, confidence level, and recommended 
+action.  
+• Autonomous Response Engine: Beyond detection — can isolate, sandbox, or throttle a device 
+autonomously, functioning as a tier -1 SOC analyst that never sleeps.  
+ 
+2. Problem Statement  
+2.1 The IoT Security Crisis  
+Global IoT device count surpassed 15 billion in  2024, projected to reach 29 billion by 2030. These 
+devices — cameras, medical sensors, industrial controllers — operate continuously, transmit sensitive 
+data, and run on minimal hardware that cannot support traditional security agents. The security challe nge 
+is threefold:  
+• Heterogeneity — Thousands of device types, OS variants, protocols, and vendors make unified 
+policy enforcement nearly impossible.  
+• Stealth — Modern IoT attackers (including nation -state APT groups) compromise devices slowly, 
+staying beneat h detection thresholds for months.  
+• Volume — A mid -sized enterprise might have 10,000+ IoT devices. No human team can monitor 
+behavioral telemetry at that scale.  
+ 
+3. Threat & Attack Taxonomy  
+DeviceDNA detects attacks from three adversary classes: nation -state APT groups, cybercriminal 
+organizations, and insider threats.  
+ 
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 6 Attack Type  How It Appears  Primary Detector  Features Changed  
+Botnet C2 Beaconing  Periodic outbound to C2 
+server, same port, small 
+payload  GMVAE + Isolation 
+Forest  unique_dst_ips↑, ports↑, 
+external↑  
+Slow Data Exfiltration  Gradual byte increase day -
+over-day (low & slow)  CUSUM  total_bytes↑, 
+avg_packet_size↑  
+Lateral Movement  New edges between 
+devices never before 
+communicating  GNN GraphSAGE  Graph topology change, 
+ports↑  
+Firmware Compromise  Completely new behavior 
+profile — all features shift  GMVAE (high latent 
+drift) DNA similarity < 0.85  
+Protocol Tunneling  Normal protocol but 
+abnormal payload 
+size/frequency  GMVAE + IF + CUSUM  packet_size↑, within -protocol 
+anomaly  
+Stealth Identity Drift  Gradual migration of device 
+behavior across clusters  GMVAE Entropy + 
+Routing Conf.  Cluster probabilities become 
+ambiguous  
+ 
+4. The GMVAE Advantage — Why Hierarchical Models?  
+Key Innovation  
+The Global GMVAE routes telemetry to Specialized GMVAEs. Comparing global vs. local reconstruction errors 
+creates anomaly signals that no single model can produce. An attacker must simultaneously fool global latent 
+structure, local device structure, tempor al evolution, graph consistency, AND entropy/confidence — making 
+stealth attacks orders of magnitude harder.  
+ 
+Old Design (VAE)  New Design (GMVAE Hierarchical)  What Changes  
+1 VAE per device (50 models)  1 Global GMVAE + 6 Specialist 
+GMVAEs  7 models total vs 50; more data per 
+model  
+Reconstruction error only  6 comparison signals  Far richer anomaly evidence  
+No cluster awareness  Cluster routing with confidence 
+scores  Catches ambiguous behavior  
+Fixed latent space  Gaussian Mixture latent space  Models multi -modal device behavior  
+No global context  Global + local understanding  Catches cross -device anomaly 
+patterns  
+ 
+5. Why CUSUM Catches What Others Miss — Worked Example  
+The table below shows how a slow exfiltration attack evades GMVAE and Isolation Forest until CUSUM 
+accumulates enough signal to raise an alarm:  
+ 
+Day Bytes/Flow  GMVAE Says  IF Says  CUSUM Acc.  CUSUM Says  
+1 500 Normal  Normal  0.00 Accumulating...  
+3 517 Normal  Normal  0.90 Accumulating...  
+5 540 Normal  Normal  1.80 Accumulating...  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 7 Day Bytes/Flow  GMVAE Says  IF Says  CUSUM Acc.  CUSUM Says  
+7 560 Normal  Normal  2.55 Accumulating...  
+9 583 Normal  Normal  3.20 > H=3.0  DRIFT DETECTED  
+12 617 Maybe...  Maybe...  4.50 (clipped)  ALARM ACTIVE  
+14 647 Anomaly  Anomaly  4.50 (clipped)  ALARM ACTIVE  
+No single reading crossed any threshold. CUSUM detected it on Day 9 by accumulating all the tiny 
+deviations. Standard detectors would have missed this entirely.  
+ 
+6. The 12 Innovation Pillars  
+# Pillar  Core Innovation  
+1 Hierarchical GMVAE 
+Architecture (NEW)  Global GMVAE routes to 6 Specialist GMVAEs; 6 -signal comparison 
+engine; research -grade stealth attack resistance  
+2 Digital Twin Behavioral 
+Modeling  Per-class GMVAE learns device -class behavioral baseline; Twin 
+Deviation Score 0.0 –1.0 
+3 Device DNA Fingerprinting  30D behavioral signature; enables identity verification and unknown 
+device classification  
+4 Multi -Dimensional Trust Score  Weighted 5 -pillar formula → single 0 –100 score updated every 5 min  
+5 Drift Intelligence (Hard + Soft)  CUSUM for soft drift; hard rules for immediate violations; two -tier 
+detection  
+6 GNN Network Topology 
+Intelligence  GraphSAGE on communication graph; detects lateral movement, botnet 
+formation  
+7 Honey -Patch Sandbox 
+Containment  Redirects suspicious traffic to sandbox instead of blocking (keeps 
+attacker engaged)  
+8 Explainable AI Threat 
+Reasoning  SHAP feature attribution + templated natural language → Threat 
+Intelligence Brief  
+9 NLP Natural Language Policy 
+Engine  BERT -class transformer converts plain English → executable security 
+rules 
+10 Predictive Risk Forecasting  LSTM forecasts P(score<40) and P(score<20) in next 24 –48 hours per 
+device  
+11 SOC -Grade Visualization 
+Dashboard  D3 topology, trust timeline, CUSUM heatmap, attack replay, what -if 
+simulator  
+12 Autonomous Response Engine  Spectrum from advisory to fully automated: isolate, sandbox, throttle, 
+quarantine  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 8 Part 2 — Technical Architecture & Technology Stack  
+1. End -to-End Data Flow  
+Data Pipeline  
+IoT Simulator (50 Devices) → Kafka raw -flows → Feature Extraction (14D Vector) → Global GMVAE → Cluster 
+Routing → Specialized GMVAE → Latent Comparison Engine → LSTM + CUSUM → GNN → Fusion Trust 
+Engine → Redis Cache → SOC Dashboard  
+ 
+Steps 3 –10 represent the core ML pipeline. Steps 3 –6 are the current integration gap (see Part 4).  
+ 
+2. Kafka Message Flow  
+Why Kafka beats simple queues: Messages are persisted to disk, not fire -and-forget. Each message has 
+a numbered offset. If the ML back end crashes at offset 120, it restarts and resumes from 120 — zero 
+data loss. Topics are partitioned for parallel processing. The Attack Replay feature re -reads historical 
+messages by seeking to any offset.  
+ 
+3. Docker Infrastructure Services  
+Service  Docker  Image  Port Role in DeviceDNA  
+PostgreSQL 16  postgres:16 -alpine  5432 Stores device records, alerts, policies, user 
+accounts (relational)  
+InfluxDB 2.7  influxdb:2.7  8086 Stores time -series telemetry, feature vectors, 
+trust score history  
+Redis 7  redis:7 -alpine  6379 In-memory cache for real -time trust score 
+lookups (<1ms reads)  
+Apache Kafka  confluentinc/cp -kafka:7.5.0  9092/29092  High-throughput persistent message queue 
+for streaming telemetry  
+Zookeeper  confluentinc/cp -
+zookeeper:7.5.0  2181 Kafka cluster coordination and leader 
+election  
+ 
+4. Telemetry Simulator — Device Classes  
+Class  Count  VLAN  Dominant 
+Protocol  Avg 
+Flows/5min  Avg 
+Bytes/Flow  External 
+Ratio  
+Camera  12 20 RTSP (45%)  80 ± 15  15,000 ± 5,000  15% ± 5%  
+Sensor  10 10 MQTT (60%)  20 ± 5  500 ± 200  1% ± 1%  
+Thermostat  8 10 HTTPS (50%)  15 ± 5  1,000 ± 400  30% ± 10%  
+Access 
+Control  6 20 HTTPS (40%)  30 ± 10  2,000 ± 800  10% ± 5%  
+Medical  8 30 HL7 (35%)  40 ± 12  8,000 ± 3,000  5% ± 3%  
+Industrial  6 40 Modbus (40%)  50 ± 15  3,000 ± 1,000  2% ± 1%  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 9  
+5. Attack Injection Scenarios  
+# Attack  Target  Injected Behavior  Detected By  Features Changed  
+1 Botnet C2  Camera SIM -
+0001 dst_ip=203.0.113.4, 
+port=4444, bytes=128 
+beacon  GMVAE + IF  dims 
+11↑,12↑,13↑,1↓,3↓  
+2 Slow Exfil  Sensor SIM -
+0013 bytes=5000 –8000 vs 
+normal 500 over HTTPS  CUSUM  dims 1↑,3↑  
+3 Lateral Move  Medical devices  SSH port 22 to peer 
+devices (new graph 
+edge)  GNN GraphSAGE  new edge, dim 12↑  
+4 NLP Policy  Thermostat  dst_ip=185.220.101.43 
+(TOR exit node)  Policy Engine  dim 13↑  
+5 Stealth Identity 
+Drift Any device  Gradual behavior 
+migration across clusters  GMVAE Entropy 
++ Cluster Conf.  Routing confidence 
+drops, entropy rises  
+ 
+6. FastAPI Backend API Endpoints  
+Method  Path Purpose  Current Status  
+GET /api/health  Health check — is backend 
+alive?  Working  
+POST  /api/trust/evaluate  Force -compute trust score for a 
+device  Returns 0.0 (no trained 
+models yet)  
+GET /api/trust/{device_id}/current  Get cached trust score from 
+Redis  Hardcoded to 100.0 (Redis 
+not wired)  
+GET /api/gmvae/route/{device_id}  Get Global GMVAE cluster 
+routing result  Planned — not implemented  
+GET /api/gmvae/comparison/{device_id}  Get all 6 comparison signals  Planned — not implemented  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 10 Part 3 — ML Models: Mathematics & Science  
+1. The 14 -Dimensional Feature Vector  
+Before any ML model runs, raw network flows must be transformed into numbers. The Feature Extraction 
+Engine converts a 5 -minute window of raw flows into a 14 -dimensional feature vector — a list of 14 
+numbers that descri be how a device behaved during that window.  
+ 
+Dim Feature Name  Type  What It Captures  What Attacks Change It  
+0 total_flows  int Activity volume — 
+connections in 5 min  Botnet C2 (slight ↑)  
+1 total_bytes  int Data volume — total bytes 
+transferred  Exfiltration (↑↑)  
+2 total_packets  int Packet count — network 
+load General activity  
+3 avg_packet_size  float total_bytes / total_packets  Exfil (↑ bulk), C2 (↓ beacon)  
+4 avg_duration_ms  float Average connection 
+duration  Persistent sessions  
+5 tcp_ratio  float Fraction of TCP flows (0.0 –
+1.0) Protocol shift  
+6 udp_ratio  float Fraction of UDP flows  Protocol shift  
+7 http_ratio  float HTTP (port 80) fraction  Tunneling  
+8 https_ratio  float HTTPS (port 443) fraction  Tunneling, exfil  
+9 dns_ratio  float DNS (port 53) fraction  DNS tunneling  
+10 other_protocol_ratio  float MQTT, RTSP, Modbus, 
+etc. Firmware compromise  
+11 unique_dst_ips  int Endpoint diversity — how 
+many IPs contacted  C2 (↑), lateral movement (↑)  
+12 unique_dst_ports  int Port diversity — how many 
+ports used  C2 (↑), scanning (↑)  
+13 external_traffic_ratio  float Fraction going outside local 
+network  Exfil (↑), C2 (↑)  
+Protocol ratios (dims 5 –10) always sum to approximately 1.0, forming a probability distribution over 
+protocol usage — the device's 'protocol fingerprint'. Ratios (dims 5 –13) are normalized to [0,1], making 
+them comparable across devices regardless of traff ic volume.  
+ 
+2. GMVAE Hierarchical Anomaly Architecture (Core Innovation)  
+Architecture Overview  
+Telemetry → Global GMVAE → Cluster Routing → Specialized GMVAE → 6 -Signal Comparison Engine → 
+Fusion Trust Score  This two -tier design replaces the per -device VA E. Instead of 50 separate VAEs, we use 1 
+Global GMVAE (trained on all devices) + 6 Specialist GMVAEs (one per device class). The comparison between 
+global and local understanding generates uniquely powerful anomaly signals.  
+ 
+2.1 What Is GMVAE?  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 11 A Gaussian Mixture Variational Autoencoder (GMVAE) extends the standard VAE by assuming the latent 
+space has K Gaussian components (clusters) rather than a single Gaussian. This makes it naturally 
+suited to modeling multiple device behavioral modes simulta neously.  
+ 
+Standard VAE latent space: z ~ N(mu, sigma^2)  — single Gaussian, one mode  
+GMVAE latent space: z ~ sum_k pi_k * N(mu_k, sigma_k^2)  — K Gaussians, K modes  
+ 
+Where pi_k is the mixing coefficient (probability) for cluster k, mu_k is the cluster mean , sigma_k^2 is the 
+cluster variance, and K is the number of device classes (K=6 for our 6 device types).  
+ 
+2.2 STEP 1 — Global GMVAE: Whole -Network Understanding  
+The Global GMVAE is trained on telemetry from ALL 50 devices across all 6 device classes. It le arns the 
+global latent structure of the entire network.  
+ 
+Global GMVAE Architecture  
+Layer  Operation  Math Purpose  
+Encoder fc1  Linear(14→64) + 
+ReLU  h1 = ReLU(W1*x + b1)  Expand and activate input features  
+Encoder fc2  Linear(64→128) + 
+ReLU  h2 = ReLU(W2*h1 + b2)  Rich feature representation  
+Cluster Head  Linear(128→K)  logits_k = Wc*h2 + bc  Cluster assignment logits  
+Cluster Probs  Softmax  pi_k = softmax(logits_k)  Probability per device class cluster  
+Encoder mu_k  K × Linear(128→16)  mu_k = W_mu_k * h2  Mean of cluster k's Gaussian  
+Encoder 
+logvar_k  K × Linear(128→16)  logvar_k = W_lv_k * h2  Log-variance of cluster k  
+Latent Sample  Reparameterization  z = mu_k* + sigma_k* * eps  Sample from chosen cluster 
+distribution  
+Decoder fc3  Linear(16→64) + 
+ReLU  h3 = ReLU(W3*z + b3)  Expand latent back  
+Decoder fc4  Linear(64→14)  x_hat = W4*h3 + b4  Reconstruct 14D feature vector  
+ 
+Global GMVAE Loss Function  
+Loss_G = MSE(x, x_hat_G) + KL(q(z|x) || p(z)) + H_cluster  
+Where MSE is the reconstruction error (anomaly signal at runtime), KL divergence regularizes the latent 
+space to the mixture prior, and H_cluster is a cluster entropy regularizer that encourages confident cluster 
+assignments.  
+ 
+Global GMVAE Outputs (Per Inf erence)  
+• z_g — Global latent vector (16D representation of device behavior)  
+• x_hat_g — Global reconstruction (what the network thinks this behavior should look like)  
+• L_g = ||x - x_hat_g||^2 — Global reconstruction error (anomaly signal 1)  
+• [pi_1, pi_2, ..., p i_K] — Cluster probabilities (routing confidence per device class)  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 12 • H_g = -sum(pi_k * log(pi_k)) — Latent entropy (anomaly signal 2)  
+ 
+2.3 STEP 2 — Cluster Routing  
+The Global GMVAE's cluster probabilities act as a behavioral router. Telemetry is forwarded to the 
+Specialized GMVAE corresponding to the highest -probability cluster.  
+ 
+Routing Logic  
+Example: Global GMVAE outputs [Camera: 92%, Sensor: 5%, Gateway: 3%] → Rou te to Camera Specialist 
+GMVAE (confidence: 92%)  Example (ambiguous): [Camera: 40%, Sensor: 35%, Gateway: 25%] → Route to 
+Camera GMVAE (marginally) → ALSO flag: low routing confidence = anomaly signal  
+ 
+Routing confidence threshold: If max(pi_k) < 0.70, th e device's behavior is considered ambiguous — a 
+potential stealth attack or identity drift. This ambiguity itself becomes an anomaly signal fed into the 
+Fusion Engine.  
+ 
+2.4 STEP 3 — Specialized GMVAE: Per -Class Deep Understanding  
+Each of the 6 device classes has its own Specialist GMVAE trained exclusively on that class's telemetry. 
+This model develops an extremely fine -grained understanding of what normal behavior looks like for that 
+device type.  
+ 
+Specialist Model  Trained On  Learn s Key Behavioral Signatures  
+Camera GMVAE  12 cameras, ~960 
+flows/5min  RTSP patterns, external 
+ratio norms, flow timing  RTSP 45%, external 15%, flows 
+80/5min  
+Sensor GMVAE  10 sensors, ~200 
+flows/5min  MQTT micro -bursts, 
+extremely low external 
+ratio MQTT 60%, external <2%, flows 
+20/5min  
+Thermostat GMVAE  8 thermostats, 
+~120 flows/5min  Periodic HTTPS cloud 
+check -ins, high external  HTTPS 50%, external 30%, flows 
+15/5min  
+Access Control 
+GMVAE  6 devices, ~180 
+flows/5min  HTTPS auth patterns, 
+moderate external  HTTPS 40%, external 10%, flows 
+30/5min  
+Medical GMVAE  8 devices, ~320 
+flows/5min  HL7 protocol, very low 
+external, high bytes  HL7 35%, external <8%, bytes 
+8000/flow  
+Industrial GMVAE  6 devices, ~300 
+flows/5min  Modbus deterministic 
+patterns, near -zero 
+external  Modbus 40%, external <3%, flows 
+50/5min  
+ 
+Specialist GMVAE Outputs (Per Inference)  
+• z_l — Local latent vector (specialist's understanding of device behavior)  
+• x_hat_l — Local reconstruction  
+• L_l = ||x - x_hat_l||^2 — Local reconstruction error (anomaly signal 3)  
+• Local cluster confidence — How certain the specialist is this looks like its class  
+ 
+2.5 STEP 4 — The 6 -Signal Comparison Engine  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 13 This is the architectural heart of DeviceDNA's anomaly d etection. By comparing global and local 
+understanding across multiple dimensions, we generate 6 independent anomaly signals. An attacker 
+must simultaneously evade all 6.  
+ 
+Signal 1 — Reconstruction Difference  
+Scenario  Global Recon 
+Error (L_g)  Local Recon 
+Error (L_l)  Interpretation  
+Normal camera behavior  Low Low Both models agree: normal  
+Globally abnormal (rare)  High High Obvious anomaly — caught by either 
+model  
+STEALTH ATTACK  Low High Globally acceptable but abnormal for 
+camera class — CRITICAL SIGNAL  
+Device class confusion  High Low Routed to wrong class — triggers re -
+routing  
+The third scenario (globally acceptable but locally abnormal) is the most dangerous attack vector 
+and the most important signal. This cannot be detected by a single -model system.  
+ 
+Signal 2 — Latent Distance (Identity Drift)  
+D_z = ||z - z_normal||  where z_ normal is the historical centroid of the device's latent vectors during 
+baseline period.  
+Large D_z means the device's latent representation has drifted from its enrolled behavioral identity. This 
+catches gradual firmware compromise, hardware replacement, a nd slow behavior manipulation.  
+ 
+D_z Value  Interpretation  Action  
+< 1.0 Normal behavioral variation  No action  
+1.0 – 2.5 Notable drift — monitor closely  Increase monitoring frequency  
+> 2.5 Significant identity drift  Alert + CUSUM cross -check  
+> 5.0 Possible firmware compromise  CRITICAL alert + isolate candidate  
+ 
+Signal 3 — Cluster Confidence Anomaly  
+If the Global GMVAE produces low max(pi_k), the device's behavior doesn't fit any known cluster well. 
+This is a stealth attack pattern — adversaries often try to keep behavior 'between categories' to avoid 
+triggering any single detector.  
+Confidence Anomaly  Score = 1 - max(pi_k)  (0 = perfectly confident, 1 = totally uncertain)  
+ 
+Signal 4 — Latent Entropy  
+H = -sum(pi_k * log(pi_k))  across all cluster probabilities  
+Maximum entropy (all clusters equally likely) = log(K) = log(6) ≈ 1.79. Minimum entropy (one cl uster = 
+100%) = 0. High entropy means the device is behaving in a way that resembles multiple device classes 
+simultaneously — unnatural and suspicious.  
+ 
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 14 Signal 5 — Temporal Latent Drift  
+Track how z_g changes over time using LSTM + CUSUM on the latent vecto r sequence:  
+Normal evolution: z(t=1) = [1.2, ...] → z(t=2) = [1.3, ...] → z(t=3) = [1.4, ...]  (smooth, gradual)  
+Attack evolution: z(t=1) = [1.4, ...] → z(t=2) = [3.2, ...] → z(t=3) = [5.8, ...]  (rapid, discontinuous)  
+CUSUM applied to ||z(t) - z(t-1)|| (latent velocity) catches gradual acceleration that individual snapshots 
+miss.  
+ 
+Signal 6 — Graph Inconsistency  
+From GNN: Check if the device's communication graph has changed in ways inconsistent with its cluster 
+assignme nt. 
+Normal (Camera): Camera → Gateway (expected communication pattern)  
+Abnormal (Camera): Camera → External IP:4444 (inconsistent with camera cluster behavior)  
+The GNN's GraphSAGE embedding captures neighborhood structure. A new edge shifts h_N(v), which 
+shifts h_v to a region flagged as anomalous by the trained classifier.  
+ 
+2.6 GMVAE Pros and Cons Analysis  
+Honest Assessment  
+The GMVAE hierarchical architecture is a genuine research -grade innovation for this domain. Here is an honest 
+evaluation of its tradeo ffs: 
+ 
+Aspect  Pros Cons  
+Model Count  7 models total (1 global + 6 specialists) 
+vs 50 per -device VAEs — far more 
+manageable  Each specialist needs sufficient per -class 
+data; small classes (6 Industrial devices) 
+may underfit  
+Detection Power  6 independent signals make 
+simultaneous evasion extremely hard  More complex fusion logic required; signal 
+weighting needs empirical tuning  
+Cluster Routing  Elegant: device classification + anomaly 
+detection in one pass  Routing errors (wrong specialist) can cause 
+false negatives; need fallback logic  
+Training Data  More data per model (class -level) 
+means better generalization  GMVAE training is more complex than VAE; 
+hyperparameter K must be chosen carefully  
+Latency  Two model inference passes instead of 
+one Adds ~10 -20ms per evaluation cycle; 
+acceptable for 5 -minute windows  
+Novel Signals  Latent entropy and routing confidence 
+as anomaly signals are underused in 
+IoT security literature  Entropy thresholds require empirical 
+calibration on real data  
+Hackathon Feasibility  Architecture document is the primary 
+deliverable — fully specifiable now  Full training pipeline is more complex; 
+suggest VAE for Phase 2, GMVAE as 
+enhancement  
+Recommendation: Implement standard VAE in Phase 2 (as originally planned) to meet hackathon deadline. 
+Document GMVAE as the enhanced post -hackathon architecture. The PRD now reflects the GMVAE as the 
+target design — this demonstrates the depth of architect ural thinking without blocking the build timeline.  
+ 
+3. Isolation Forest — Statistical Outlier Detection  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 15 3.1 Core Intuition — Why 'Isolation' Works  
+Isolation Forest builds many random binary decision trees. For each tree, it picks a random feature and a 
+random split value, dividing data into two groups. It repeats until each data point is isolated (alone in a 
+leaf node).  
+Key insight: anomalies are rar e and different, so they're isolated in very few splits. Normal points are 
+similar to many others — they need many splits to separate. Short path = easy to isolate = anomaly.  
+ 
+Anomaly Score = 2^( -average_path_length / c(n))  
+where c(n) is the expected path length for a dataset of size n. Score near 1.0 = anomaly. Score near 0.5 
+= normal.  
+ 
+3.2 Implementation in DeviceDNA  
+Unlike GMVAE (global + 6 specialist), Isolation Forests are trained per device class (6 models: camera, 
+sensor, thermostat, access_control, medical, industrial). This provides a larger training set and allows 
+new devices to be scored immediately without a 7 -day baseline. The IF excels at hard, structural 
+anomalies — sudden dramatic changes like a camera suddenly using SSH, or a sensor contacti ng 15 
+unique external IPs (normally 2).  
+ 
+4. CUSUM Drift Engine — Detecting Slow, Stealthy Attacks  
+4.1 The Full Math  
+Step 1 — Z-score normalization: z_t = (x_t - mu) / sigma  
+Step 2 — Accumulate deviations (two -sided CUSUM):  
+  S+_t = max(0, S+_(t -1) + z_t - K)  [detects UPWARD drift]  
+  S-_t = max(0, S -_(t-1) - z_t - K)  [detects DOWNWARD drift]  
+Step 3 — Check threshold: If max(S+, S -) > H → DRIFT ALARM  
+Step 4 — Normalize for trust engine: drift_score = min(1.0, max(S+, S -) / H) 
+ 
+Parameter  Value  Meaning  
+K (slack)  0.5 Ignores deviations within +/ - 0.5 sigma. Prevents false alarms from normal 
+noise.  
+H (threshold)  3.0 Cumulative z -score must exceed 3.0. Requires ~6 consecutive above -average 
+readings.  
+Clip limit  4.5 (H x 
+1.5) Prevents cumulative sums from exploding if drift continues indefinitely.  
+Tracked 
+features  3 total_bytes, avg_packet_size, external_traffic_ratio — most exfil -sensitive dims.  
+ 
+5. LSTM — Temporal Sequence Anomaly Detection  
+LSTM (Long Short -Term Memory) is a recurrent neural network designed for sequential, time -dependent 
+patterns. While GMVAE and Isolation Forest analyze a single 5 -minute snapshot, LSTM looks at the last 
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 16 12 snapshots (1 hour) to predict what the next snapsho t should look like. Prediction error = anomaly 
+score.  
+ 
+Architecture  
+Input: Last 12 feature vectors (shape: batch x 12 x 14)  
+LSTM(input=14, hidden=64, layers=2, dropout=0.2)  
+Linear(64 → 14)  
+Output: Predicted next feature vector (shape: batch x 14)  
+ 
+The 4 LS TM Gates  
+Gate Formula  What It Controls  
+Forget gate  f_t = sigma(Wf * [h_(t -1), x_t] + bf)  What fraction of old memory to keep (0=forget all, 
+1=keep all)  
+Input gate  i_t = sigma(Wi * [h_(t -1), x_t] + bi)  How much new information to store  
+Cell update  C'_t = tanh(Wc * [h_(t -1), x_t] + bc)  Candidate new memory content  
+Output gate  o_t = sigma(Wo * [h_(t -1), x_t] + bo)  What portion of memory to output now  
+Cell state  C_t = f_t x C_(t -1) + i_t x C'_t  Updated long -term memory  
+Hidden state  h_t = o_t x tanh(C_t)  Output at this timestep (fed to next timestep)  
+Current Status: LSTM architecture is code -complete but NOT integrated into the trust engine. Trust engine 
+hardcodes LSTM score as 0.0. No training script exists yet.  
+ 
+6. Graph Neural Network (GNN) — Network Topology Intelligence  
+6.1 Graph Formulation  
+The IoT network is modeled as a directed graph G = (V, E):  
+• V (nodes) = IoT devices (50 nodes). Each node has a 14D feature vector: x_v in R^14  
+• E (edges) = Communication flo ws between devices, directed, weighted by byte volume  
+• Adjacency matrix A in R^(NxN) captures which devices talk to which  
+Goal: For each node, predict Normal (0) or Anomalous (1) based on its features AND its position in the 
+graph.  
+ 
+6.2 GraphSAGE — Message Passing Mathematics  
+Step 1: h_N(v)^(k) = MEAN({ h_u^(k -1) | u in N(v) })  — Aggregate neighbor features  
+Step 2: h_v^(k) = ReLU( W^(k) · CONCAT( h_v^(k -1), h_N(v)^(k) ) )  — Transform  
+Step 3: h_v^(k) = h_v^(k) / ||h_v^(k)||_2  — L2 normalize to prevent exploding embeddings  
+ 
+6.3 DeviceDNA Architecture  
+Layer 1: SAGEConv(14 → 32, normalize=True) → ReLU + Dropout(0.2)  
+Layer 2: SAGEConv(32 → 32, normalize=True) → ReLU  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 17 Final: Linear(32 → 2) →  Softmax → [P(normal), P(anomalous)]  
+ 
+Property  GCN (Graph Convolutional)  GraphSAGE (chosen)  
+New nodes  Requires retraining entire graph  Handles new devices without 
+retraining (inductive)  
+Scalability  Full graph convolution O(N^2)  Neighborhood sampling — scales 
+to millions of nodes  
+Dynamic graphs  Static graph assumed  Works with changing connectivity 
+(IoT constant changes)  
+Our need  N/A New devices join constantly, graph 
+changes every 5 min  
+Current Status: GNN architecture is code -complete but requires torch -geometric (PyG) 
+which is NOT installed. Falls back gracefully. No training script exists yet.  
+ 
+7. The 5 -Pillar Trust Score Engine  
+7.1 Pillar Weights  
+Pillar  Component  Weight  Primary Source  
+Digital Twin (GMVAE)  Global + Local reconstruction errors, 
+routing confidence, entropy  35% GMVAE Hierarchical  
+Anomaly Ensemble  Isolation Forest + LSTM + GNN 
+weighted composite  25% IF + LSTM + GNN  
+Drift Intelligence  CUSUM accumulator for 3 key features  20% CUSUM Engine  
+Policy Conformance  Hard rule violations detected by Policy 
+Engine  15% NLP Policy Engine  
+Peer Comparison (DNA)  Cosine similarity vs device class 
+average DNA  5% DNA Fingerprint  
+ 
+7.2 The Formula  
+gmvae_score = w1*L_g + w2*L_l + w3*D_z + w4*H + w5*(1 - routing_confidence)  
+ensemble_score = (IF x 0.6) + (LSTM x 0.2) + (GNN x 0.2)  
+penalty = (gmvae_score x 0.35) + (ensemble_score x 0.25) + (CUSUM x 0.20) + (policy x 0.15) + (peer x 
+0.05)  
+Trust Score = 100 - (penalty x 100)  
+ 
+7.3 Worked Example — Camera C2 Attack  
+Camera SIM -0001 starts C2 beaconing to malicious IP on port 4444:  
+Pillar  Score  Weight  Contribution  Why This Score  
+GMVAE Global (L_g)  0.40 x0.35 (partial)  included in 
+gmvae_score  New IP + new port = moderate global 
+error 
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 18 Pillar  Score  Weight  Contribution  Why This Score  
+GMVAE Local (L_l)  0.85 x0.35 (partial)  included in 
+gmvae_score  Camera specialist: port 4444 never 
+seen 
+Routing Confidence  0.78 x0.35 (partial)  included in 
+gmvae_score  Camera cluster still dominant but lower  
+Latent Entropy (H)  0.45 x0.35 (partial)  included in 
+gmvae_score  Slight cluster uncertainty  
+gmvae_score total  0.64 x0.35  0.2240  Combined GMVAE signal  
+IF score (ensemble)  0.90 x0.6 in 
+ensemble  0.540  Port 4444 — structural outlier  
+ensemble total  0.54 x0.25  0.1350  IF dominant; LSTM/GNN hardcoded 0  
+CUSUM drift  0.20 x0.20  0.0400  Some accumulation, not sustained yet  
+Policy penalty  0.00 x0.15  0.0000  No policy rule matched yet  
+Peer penalty  0.00 x0.05  0.0000  Still similar to other cameras  
+penalty  0.399  — — 0.224 + 0.135 + 0.040  
+Trust Score  60.1 — — STATUS: SUSPICIOUS — correctly 
+flagged  
+Note: With full GMVAE training (vs the partial signal above), the local reconstruction error (L_l) would 
+score higher because the Camera Specialist GMVAE would have a very precise model of camera -normal 
+behavior that port 4444 C2 beaconing would violate dr amatically. Expected score with full training: < 40 
+(CRITICAL).  
+ 
+8. Device DNA Fingerprinting  
+DNA = [normalized_features(14D) || VAE_latent_mu(16D)] = 30D vector  
+The DNA is a 30D vector combining raw behavioral features with the GMVAE's learned latent 
+representation. It's the device's unique identity signature, updated every 5 minutes and compared against 
+its enrolled baseline.  
+ 
+Two Uses of DNA  
+• Identity Verification: Compare live DNA to enrolled baseline using cosine similarity: 
+cosine_sim(A,B) = (A·B) / (||A|| x ||B||)  
+◦   Similarity > 0.85 → device identity confirmed, behavior consistent  
+◦   Similarity 0.65 –0.85 → degraded behavior, possible configuration change  
+◦   Similarity < 0.65 → possible firmware compromise or hardware replacement → ALERT  
+• Unknown Device Classification: When a new device joins, compare its DNA to class -average 
+DNA of all  6 known device types. If max similarity < 0.65 → classified as 'unknown_alien_device' 
+→ immediate alert.  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 19 Part 4 — Simulator, Frontend Architecture & Project Status  
+1. Traffic Generation Mathematics  
+The simulator creates statistically realistic flows by sampling from Gaussian distributions parameterized 
+per device class. Protocol selection uses weighted random sampling — over 1,000 flows, empirical 
+protocol ratios converge to the defined probabilities by the Law of Large Numbers. Batch generation: 
+device selection is weighted by expected flow frequency. Cameras (80 flows/5min) appear ~4x more 
+often than Thermostats (15 flows/5min) in each batch.  
+ 
+2. Frontend Dashboard — Core Visualizations  
+2.1 Network Topology Map — D3.js Force -Directed Graph  
+NetworkTopolo gyMap.tsx renders all 50 devices using d3.forceSimulation() with charge repulsion, link 
+attraction, center gravity, and collision prevention. Node color: Green (>=80), Yellow (40 –79), Red (<40) 
+with animated glow on anomalous nodes. Node size scales with t raffic volume. Interactions: drag, click to 
+drill. WebSocket telemetry_ping events animate edge pulses.  
+2.2 Trust Score Timeline — Recharts Line Chart  
+Shows 12 -hour history at 5 -minute intervals. Threshold reference lines at 40 (suspicious) and 80 
+(trusted ). When new_alert WebSocket events arrive, the chart drops the device's score and shows a 
+recovery curve. Area fill switches Green→Red below threshold.  
+2.3 CUSUM Drift Heatmap — visx Calendar Grid  
+7 columns (days) x 24 rows (hours) = 168 cells. Color scale : White (no drift) → Yellow → Orange → Red 
+(severe). Simulates attack signatures on Tuesday/Wednesday nights.  
+ 
+3. Current Project Status  
+Phase  Name  Status  Progress  
+Phase 0  Infrastructure & Scaffolding  COMPLETE  100%  
+Phase 1  Simulator & Data Pipeline  Mostly Done  ~75%  
+Phase 2  Digital Twin & DNA Fingerprint 
+(VAE)  Half Done  ~50%  
+Phase 2+  GMVAE Hierarchical Architecture 
+(NEW)  Architecture Only  ~15%  
+Phase 3  ML Ensemble & Trust Engine  In Progress  ~40%  
+Phase 4  Explainability (SHAP)  NOT STARTED  0% 
+Phase 5  SOC Dashboard Frontend  Near Done  ~90%  
+Phase 6  NLP Policy & Advanced Features  UI Only  ~25%  
+Phase 7  Autonomous Response  Barely Started  ~5% 
+Phase 8  Polish & Deployment  NOT STARTED  0% 
+ 
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 20 4. The 7 Critical Integration Gaps  
+Gap 1 — ML Pipeline Disconnected from Telemetry  
+The Kafka consumer receives flows and broadcasts WebSocket events, but NEVER calls 
+feature_extraction.extract_features(), NEVER calls master_trust_engine.evaluate_device(), and NEVER persists 
+to InfluxDB/Redi s. This is the single biggest gap — the entire ML pipeline is disconnected from live data.  
+ 
+Gap 2 — No Trained Models Exist  
+The models_trained/ directory does not exist. VAE scoring returns -1.0 (FileNotFoundError). Fix: Run python -m 
+training.train_vae from backend/ to train initial VAE Digital Twins. GMVAE training comes after VAE baseline is 
+established.  
+ 
+Gap 3 — Trust Score API Returns Hardcoded Data  
+GET /api/trust/{device_id}/current always returns trust_score: 100.0 with all pillars at 0.0. Should read from Redis 
+cache.  
+ 
+Gap 4 — Frontend Uses All Mock Data  
+Every visualization component generates its own  fake data internally. Network map creates 50 random nodes; 
+timeline generates 12 -hour fake history; heatmap uses hardcoded patterns; alerts are hardcoded JSON arrays.  
+ 
+Gap 5 — Missing Training Scripts  
+train_vae.py exists but hasn't been run. train_isolation_forest.py, train_lstm.py, and train_gnn.py are all MISSING. 
+train_gmvae_global.py and train_gmvae_specialist.py do not exist yet.  
+ 
+Gap 6 — Missing Python Dependencies  
+requirements.txt is missing: to rch, torchvision, numpy, scikit -learn, joblib, torch -geometric (GNN), and shap 
+(explainability).  
+ 
+Gap 7 — No Data Persistence Layer  
+Trust scores computed but never saved to Redis or InfluxDB. No Redis client in backend/app/db/. No PostgreSQL 
+connection po ol. Feature vectors never written to InfluxDB. Alert auto -creation pipeline does not exist.  
+ 
+5. Prioritized Build Roadmap  
+Tier Tasks  Priority  
+Tier 1 — ML 
+Pipeline  Add missing Python deps to requirements.txt; Run train_vae.py (initial 
+Digital Twins); Create train_isolation_forest.py (6 class models); Wire 
+Kafka→features→ML→scores→Redis→InfluxDB→WebSocket; Make 
+GET /api/trust/{id}/current read from Redis  CRITICAL  
+Tier 2 — 
+Frontend  Create frontend/lib/api.ts (centralized API client); Replace all mock 
+data with real API calls; Add Zustand stores for global state  HIGH  
+Tier 3 — ML 
+Ensemble  Create train_lstm.py + integrate into trust engine; Create train_gnn.py 
++ install torch -geometric; Replace hardcoded 0.0 scores in trust engine  MEDIUM  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 21 Tier Tasks  Priority  
+Tier 4 — 
+GMVAE  Create train_gmvae_global.py; Create 6x train_gmvae_specialist.py; 
+Build 6 -signal comparison engine; Update trust formula to include 
+GMVAE signals  MEDIUM  
+Tier 5 — 
+Explainability  Add SHAP feature attribution; Build Threat Intelligence Brief generator; 
+Create alert auto -generation pipeline; Implement NLP policy parser 
+backend  MEDIUM  
+Tier 6 — 
+Advanced  Device detail drawer; Attack replay backend (InfluxDB time query); 
+What -if simulator; Autonomous response engine; Docker compose 
+finalization  LOW 
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 22 Appendix A — Architecture Diagrams: At a Glance  
+A.1 System Architecture (4 Layers)  
+Layer  Description  
+LAYER 4 — SOC 
+Dashboard  Next.js 14 · React 18 · D3.js · Socket.IO · Recharts · Tailwind CSS  
+LAYER 3 — ML Backend 
+API FastAPI · Socket.IO ASGI · GMVAE Global · 6x GMVAE Specialist · IF · CUSUM · 
+GNN · LSTM  
+LAYER 2 — Telemetry 
+Simulator  device_profiles.py · traffic_generator.py · attack_scenarios.py (50 IoT Devices)  
+LAYER 1 — Data 
+Infrastructure  PostgreSQL · InfluxDB · Redis · Apache Kafka · Zookeeper (Docker Compose)  
+ 
+A.2 GMVAE Hierarchical Data Flow  
+Step Component  Input  Output  Anomaly Signal Generated  
+1 Feature Extraction  Raw network flows 
+(5-min window)  14D feature vector x  — 
+2 Global GMVAE  x (14D)  z_g, x_hat_g, 
+[pi_1..pi_K], H_g  L_g, Entropy H, Routing 
+Confidence  
+3 Cluster Router  [pi_1..pi_K]  Selected specialist 
+index k*  If max(pi_k) < 0.70: ambiguity 
+flag 
+4 Specialist GMVAE k*  x (14D)  z_l, x_hat_l, 
+local_confidence  L_l, local cluster confidence  
+5 Comparison Engine  All above  6 anomaly scores  Signal 1 -6 fed to Fusion 
+Engine  
+6 LSTM + CUSUM  12x 14D sequence 
++ feature history  Temporal anomaly 
+score T  Signal 5 (temporal latent drift)  
+7 GNN GraphSAGE  Graph G=(V,E), 
+node features  P(anomalous) per 
+node Signal 6 (graph 
+inconsistency)  
+8 Fusion Trust Engine  All 6+ signals  Trust Score 0 -100 Final verdict → Redis → 
+Dashboard  
+ 
+A.3 GMVAE vs VAE — Architecture Comparison  
+Aspect  Standard VAE (Phase 2)  GMVAE Hierarchical (Target)  
+Model count  50 (one per device)  7 (1 global + 6 specialists)  
+Latent space  Single Gaussian N(mu, sigma^2)  Mixture of K Gaussians sum_k pi_k N(mu_k, 
+sigma_k^2)  
+Anomaly signals  1 (reconstruction error)  6 (reconstruction diff, latent dist, cluster conf, 
+entropy, temporal, graph)  
+Routing  None  Cluster probabilities route to specialist  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 23 Aspect  Standard VAE (Phase 2)  GMVAE Hierarchical (Target)  
+Stealth attack 
+resistance  Medium  High — must fool 6 independent signals  
+Training complexity  Low Medium — requires per -class datasets  
+Implementation timeline  Phase 2 (current)  Phase 4 (post -MVP)  
+ 
+A.4 Trust Score Components  
+Component  Weight  Models Contributing  
+Digital Twin (GMVAE)  35% Global GMVAE + Specialist GMVAE (6 signals combined)  
+Anomaly Ensemble  25% Isolation Forest (60%) + LSTM (20%) + GNN (20%)  
+Drift Intelligence  20% CUSUM on total_bytes, avg_packet_size, external_ratio  
+Policy Conformance  15% NLP Policy Engine (BERT -class transformer)  
+Peer Comparison (DNA)  5% Cosine similarity vs class -average DNA (30D vector)  
+  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 24 Appendix B — Quick -Reference Cheat Sheet  
+B.1 Key Formulas  
+Formula  Meaning  
+x in R^14  14-dimensional feature vector (device behavior snapshot)  
+z = mu_k + sigma_k * eps, eps~N(0,I)  GMVAE reparameterization trick — differentiable sampling from 
+cluster k  
+pi_k = softmax(logits_k)  Cluster routing probability for cluster k  
+Loss_G = MSE + KL + H_cluster  GMVAE training objective: reconstruction + regularization + 
+cluster entropy  
+L_g = ||x - x_hat_g||^2  Global reconstruction error (anomaly signal 1)  
+L_l = ||x - x_hat_l||^2  Local reconstruction error (anomaly signal 3)  
+D_z = ||z - z_normal||  Latent distance drift (anomaly signal 2)  
+H = -sum(pi_k * log(pi_k))  Routing entropy (anomaly signal 4)  
+S+_t = max(0, S+_(t -1) + z_t - K) CUSUM upper accumulator (K=0.5 slack)  
+drift_score = min(1, S_t/H)  Normalizes CUSUM to 0 -1 for trust engine  
+h_v^(k) = ReLU(W * [h_v || mean(neighbors)])  GraphSAGE single -layer update  
+Score_IF = 2^( -path/c(n))  Isolation Forest anomaly score  
+penalty = GMVAE*0.35 + ensemble*0.25 + 
+CUSUM*0.20 + policy*0.15 + peer*0.05  Trust penalty formula  
+Trust Score = 100 - penalty*100  Final trust score 0 -100 
+cosine_sim = (A·B) / (||A|| x ||B||)  DNA similarity for identity verification  
+DNA = [14D features || 16D GMVAE -mu] 30D behavioral fingerprint  
+ 
+B.2 Technology Quick Reference  
+Technology  Role Why Chosen Over Alternative  
+GMVAE Hierarchical  Core anomaly detection  6 independent signals vs single reconstruction error; 
+stealth -resistant  
+Apache Kafka  Streaming message queue  Persistent (vs Redis pub/sub fire -and-forget), replay 
+support  
+Redis  Real-time trust score cache  Sub-ms RAM reads (vs PostgreSQL 5 -50ms disk 
+reads)  
+PostgreSQL  Relational system of record  ACID, joins, MVCC concurrency (vs NoSQL: need 
+relations)  
+InfluxDB  Time -series telemetry 
+storage  Time -window queries, auto -downsampling (vs 
+Postgres: poor at TS)  
+FastAPI  ML Backend API  Async -native, auto OpenAPI docs (vs Flask: sync -only) 
+GraphSAGE  GNN architecture  Inductive (new nodes w/o retraining) vs GCN 
+(transductive, O(N^2))  
+Isolation Forest  Structural outlier detection  No labels needed, fast inference (vs supervised 
+classifier)  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 25 Technology  Role Why Chosen Over Alternative  
+CUSUM  Drift detection  Accumulates deviations over time (vs point -in-time 
+threshold)  
+D3.js Network topology map  Raw SVG control needed for force simulation, glow, 
+drag 
+Socket.IO  Real-time WebSocket  Auto-reconnect, named events, fallback to long -poll 
+Docker Compose  Infrastructure orchestration  One-command boot, health checks, isolated containers  
+Next.js 14  Frontend framework  App Router, Server Components, TypeScript -first 
+ 
+B.3 Attack Signals — Feature Impact Summary  
+Attack Type  Dims Most Affected  Primary Detector  Notes  
+Botnet C2 Beaconing  11↑ (new IPs), 12↑ (new ports), 
+13↑ (external), 1↓, 3↓  GMVAE + IF  Routing confidence stays high; 
+L_l catches local anomaly  
+Slow Exfiltration  1↑ (bytes), 3↑ (packet size)  CUSUM  Only accumulation over days 
+reveals it  
+Stealth Identity Drift  All dims drift subtly  GMVAE Entropy + 
+D_z Novel signal; invisible to single -
+model systems  
+Lateral Movement  Graph topology change, 12↑ 
+(ports)  GNN GraphSAGE  Not visible in single -device 
+features  
+Firmware 
+Compromise  All dims shift globally  GMVAE (D_z + 
+DNA similarity 
+<0.85)  Device no longer resembles its 
+enrolled baseline  
+Protocol Tunneling  7-10 protocol ratios abnormal  GMVAE L_l + IF + 
+CUSUM  Bypasses port -based firewalls; 
+specialist model catches  
+ 
+B.4 Files That Don't Exist Yet (Critical Gaps)  
+Planned File  Purpose  
+backend/training/train_vae.py (run this first)  Initial VAE Digital Twins baseline training  
+backend/training/train_gmvae_global.py  Global GMVAE training on all 50 devices  
+backend/training/train_gmvae_specialist.py  6x Specialist GMVAE training per device class  
+backend/app/ml/gmvae_comparison.py  6-signal comparison engine implementation  
+backend/training/train_isolation_forest.py  IF training script (6 per -class models)  
+backend/training/train_lstm.py  LSTM temporal model training  
+backend/training/train_gnn.py  GNN GraphSAGE training  
+backend/app/db/postgres.py  PostgreSQL connection pool  
+backend/app/db/redis.py  Redis client for trust score cache  
+backend/app/services/policy_engine.py  NLP policy evaluation  
+backend/app/services/explainability.py  SHAP + Threat Intelligence Brief generation  
+backend/app/services/response_engine.py  Autonomous response actions  
+DeviceDNA   |  AI-Powered IoT Cybersecurity Intellige nce Platform  |  Eclipse Hackathon 2025  
+Comprehensive Technical Documentation — Updated May 2026  Page 26 Planned File  Purpose  
+backend/app/ml/ensemble.py  Weighted ensemble orchestration  
+frontend/lib/api.ts  Centralized backend API client  
+frontend/lib/store.ts  Zustand global state stores  
+ 
+DeviceDNA — Eclipse Hackathon 2025  |  IoT Trust & Drift Analytics  |  Autonomous  |  Explainable  |  Predictive  |  Enterprise -
+Grade  

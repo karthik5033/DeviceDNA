@@ -10,7 +10,8 @@ from app.services.trust_engine import master_trust_engine
 
 logger = logging.getLogger(__name__)
 
-KAFKA_BROKER = "localhost:29092"
+import os
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
 RAW_TOPIC = "raw-flows"
 
 class TelemetryService:

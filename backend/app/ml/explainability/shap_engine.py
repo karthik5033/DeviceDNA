@@ -1,7 +1,7 @@
 import numpy as np
 import shap
 import logging
-from app.ml.vae.scoring import twin_scorer
+from app.ml.gmvae.scoring import gmvae_scorer
 from app.ml.isolation_forest.model import if_scorer
 
 logger = logging.getLogger(__name__)
@@ -64,16 +64,16 @@ def explain_anomalies(device_id: str, device_class: str, feature_vector: list[fl
     # -----------------------------------------
     vae_top_features = []
     
-    if device_id in twin_scorer.twins:
-        # Wrapper to get VAE anomaly scores
+    if device_id in gmvae_scorer.norm_params and gmvae_scorer.global_model is not None:
+        # Wrapper to get GMVAE anomaly scores
         def vae_predict(X_batch):
             scores = []
             for row in X_batch:
-                scores.append(twin_scorer.score(device_id, row.tolist()))
+                scores.append(gmvae_scorer.score(device_id, row.tolist()))
             return np.array(scores)
             
         # Use device minimums as baseline for KernelSHAP
-        norm_params = twin_scorer.twins[device_id]['norm']
+        norm_params = gmvae_scorer.norm_params[device_id]
         f_mins = norm_params.get('min', norm_params.get('mins', norm_params.get('feature_mins', [0]*14)))
         background = np.array(f_mins).reshape(1, -1)
         

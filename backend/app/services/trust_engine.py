@@ -1,7 +1,7 @@
 import logging
 import json
 from datetime import datetime
-from app.ml.vae.scoring import twin_scorer
+from app.ml.gmvae.scoring import gmvae_scorer
 from app.ml.isolation_forest.model import if_scorer
 from app.ml.lstm.scoring import lstm_scorer
 from app.ml.gnn.scoring import gnn_scorer
@@ -109,8 +109,8 @@ class TrustScoreEngine:
         Requires the immediate 5-min feature snapshot, and the long-term static means/stds.
         """
         try:
-            # 1. VAE Digital Twin (0 -> 1.0)
-            vae_dev = twin_scorer.score_deviation(device_id, current_features)
+            # 1. GMVAE Hierarchical Digital Twin (0 -> 1.0)
+            vae_dev = gmvae_scorer.score_deviation(device_id, device_class, current_features)
             
             # 2. Isolation Forest (0 -> 1.0)
             if_anomaly = if_scorer.score_anomaly(device_class, current_features)

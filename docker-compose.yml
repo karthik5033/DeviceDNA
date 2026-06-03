@@ -70,6 +70,11 @@ services:
     working_dir: /app
     volumes:
       - ./backend:/app
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      INFLUXDB_URL: http://influxdb:8086
+      KAFKA_BROKER: kafka:9092
     command: >
       bash -c "pip install -r requirements.txt && python -m scripts.seed_demo_data"
     depends_on:
@@ -86,6 +91,11 @@ services:
     working_dir: /app
     volumes:
       - ./backend:/app
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      INFLUXDB_URL: http://influxdb:8086
+      KAFKA_BROKER: kafka:9092
     command: >
       bash -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
@@ -99,6 +109,11 @@ services:
     working_dir: /app
     volumes:
       - ./backend:/app
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      INFLUXDB_URL: http://influxdb:8086
+      KAFKA_BROKER: kafka:9092
     command: >
       bash -c "pip install -r requirements.txt && python -m simulator.main"
     depends_on:

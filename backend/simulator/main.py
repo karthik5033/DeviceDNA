@@ -8,7 +8,8 @@ from simulator.attack_scenarios import AttackScenarios
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-KAFKA_BROKER = "localhost:29092"
+import os
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
 TOPIC_NAME = "raw-flows"
 
 async def stream_telemetry():

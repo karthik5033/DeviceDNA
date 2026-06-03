@@ -1,6 +1,6 @@
 import asyncio
 from app.db.postgres import engine, Base
-from app.db.models import Alert
+from app.db.models import Alert, ResponseAuditLog
 
 async def drop_and_create():
     async with engine.begin() as conn:
