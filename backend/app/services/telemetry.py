@@ -26,6 +26,7 @@ class TelemetryService:
     def __init__(self, influx_client):
         self.influx_client = influx_client
         self.consumer = None
+        self.flow_count = 0
 
     async def start(self):
         # Graceful handling if Kafka is not yet up in Docker
@@ -33,13 +34,12 @@ class TelemetryService:
             self.consumer = AIOKafkaConsumer(
                 RAW_TOPIC,
                 bootstrap_servers=KAFKA_BROKER,
-                group_id="backend_telemetry",
+                group_id="backend_telemetry_2",
                 auto_offset_reset="latest",
                 value_deserializer=lambda m: json.loads(m.decode('utf-8'))
             )
             await self.consumer.start()
             logger.info(f"TelemetryService: Listening to {RAW_TOPIC} on {KAFKA_BROKER}")
-            with open('debug_telemetry.log', 'a') as f: f.write("TelemetryService started\n")
             task = asyncio.create_task(self._consume())
             
             def _handle_task_result(t):
@@ -48,23 +48,21 @@ class TelemetryService:
                 except Exception as ex:
                     import traceback
                     logger.error(f"Task crashed unhandled:\n{traceback.format_exc()}")
-                    with open('debug_telemetry.log', 'a') as f: f.write(f"Task crashed: {traceback.format_exc()}\n")
                     
             task.add_done_callback(_handle_task_result)
         except Exception as e:
             logger.error(f"Kafka connection failed (Will not stream telemetry): {e}")
-            with open('debug_telemetry.log', 'a') as f: f.write(f"Kafka failed: {e}\n")
 
     async def _consume(self):
         try:
-            with open('debug_telemetry.log', 'a') as f: f.write("Entered _consume loop\n")
             async for msg in self.consumer:
                 flow = msg.value
-                with open('debug_telemetry.log', 'a') as f: f.write(f"Got flow: {flow.get('flow_id')}\n")
                 await self._process_flow(flow)
+                # Yield control to the event loop so FastAPI can handle HTTP requests
+                await asyncio.sleep(0)
         except Exception as e:
             import traceback
-            with open('debug_telemetry.log', 'a') as f: f.write(f"Consume crash: {traceback.format_exc()}\n")
+            logger.error(f"Consume crash: {traceback.format_exc()}")
 
     async def _process_flow(self, flow):
         try:
@@ -97,6 +95,10 @@ class TelemetryService:
                 if src_id and dst_id:
                     gnn_scorer.update_graph(src_id, dst_id)
 
+            self.flow_count += 1
+            if self.flow_count % 10 != 0:
+                return
+                
             features = extract_features(
                 flow.get('device_id', 'unknown'),
                 flow.get('device_class', 'unknown'),
@@ -110,8 +112,6 @@ class TelemetryService:
                 {}
             )
             
-            with open('debug_telemetry.log', 'a') as f: f.write(f"Score for {flow.get('device_id')}: {trust_score}\n")
-            
             final_score_value = float(trust_score.get('trust_score', 0.0)) if isinstance(trust_score, dict) else float(trust_score)
             
             payload = {
@@ -119,13 +119,13 @@ class TelemetryService:
                 'score': final_score_value,
                 'timestamp': datetime.utcnow().isoformat()
             }
-            logger.info(f"EMITTING PAYLOAD: {payload}")
+            # Only log every 100th flow to avoid spamming the console
+            # logger.info(f"EMITTING PAYLOAD: {payload}")
             
             await sio.emit('trust_update', payload)
-            with open('debug_telemetry.log', 'a') as f: f.write(f"Emitted trust_update for {flow.get('device_id')}\n")
         except Exception as e:
             import traceback
-            with open('debug_telemetry.log', 'a') as f: f.write(f"Process crash: {traceback.format_exc()}\n")
+            logger.error(f"Process crash: {traceback.format_exc()}")
 
     async def stop(self):
         if self.consumer:
