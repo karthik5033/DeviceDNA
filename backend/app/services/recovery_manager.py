@@ -1,3 +1,4 @@
+import asyncio
 import time
 import logging
 from app.db.redis import redis_client
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 LAST_ANOMALY_PREFIX = "response:last_anomaly_time"
 RECOVERY_WINDOW_SECS = 300  # 5 minutes clean window
 
-def evaluate_recovery(device_id: str, raw_trust_score: float, effective_trust: float):
+async def evaluate_recovery(device_id: str, raw_trust_score: float, effective_trust: float):
     """
     Checks if a device qualifies for trust recovery and restriction release.
     Should be called at the end of each trust scoring cycle.
@@ -75,10 +76,8 @@ def evaluate_recovery(device_id: str, raw_trust_score: float, effective_trust: f
                     # Dispatch recover command to MQTT
                     mqtt_dispatcher.dispatch_command(device_id, "recover", relay_open=False)
                     
-                    # Emit recovery event to Socket.IO
-                    asyncio = __import__("asyncio")
-                    loop = asyncio.get_event_loop()
-                    loop.create_task(sio.emit("device_recovered", {
+                    # Emit recovery event to Socket.IO (safe async task creation)
+                    asyncio.create_task(sio.emit("device_recovered", {
                         "device_id": device_id,
                         "timestamp": datetime_utcnow_iso(),
                         "effective_trust": new_effective_trust
@@ -99,11 +98,10 @@ def evaluate_recovery(device_id: str, raw_trust_score: float, effective_trust: f
                             )
                             session.add(audit)
                             await session.commit()
-                    loop.create_task(log_recovery())
+                    asyncio.create_task(log_recovery())
                 else:
                     # Emit partial recovery event
-                    loop = __import__("asyncio").get_event_loop()
-                    loop.create_task(sio.emit("device_recovering", {
+                    asyncio.create_task(sio.emit("device_recovering", {
                         "device_id": device_id,
                         "timestamp": datetime_utcnow_iso(),
                         "effective_trust": new_effective_trust,

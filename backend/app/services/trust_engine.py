@@ -60,11 +60,81 @@ CLASS_POLICY_RULES = {
     ]
 }
 
-def evaluate_policy_score(device_class: str, current_features: list[float]) -> float:
+import re
+from sqlalchemy import select
+from app.db.models import PolicyRule
+
+FEATURE_NAMES = [
+    "bytes_sent", "bytes_recv", "packet_count", "bytes_per_packet", 
+    "upload_download_ratio", "unique_dst_ips", "unique_dst_ports", 
+    "unique_src_ports", "ext_int_ratio", "active_hours_bitmap", 
+    "inter_arrival_mean", "inter_arrival_var", "burst_freq", "protocol_entropy"
+]
+
+async def evaluate_policy_score(device_class: str, current_features: list[float]) -> float:
     """
-    Evaluates policy conformance.
+    Evaluates policy conformance dynamically using active database policy rules,
+    falling back to static rules if no active database rules are found.
     Returns fraction of rules passed (0.0 to 1.0).
     """
+    db_rules = []
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(PolicyRule).where(
+                    PolicyRule.is_active == True,
+                    (PolicyRule.device_class == device_class) | (PolicyRule.device_class == "any")
+                )
+            )
+            db_rules = result.scalars().all()
+    except Exception as e:
+        logger.error(f"Failed to fetch dynamic policy rules: {e}")
+
+    if db_rules:
+        passed = 0
+        total_rules = len(db_rules)
+        for rule in db_rules:
+            # A DB rule condition specifies the violation criteria.
+            # If the condition evaluates to True, it is a violation (not passed).
+            # If it evaluates to False, it is passed.
+            condition_str = rule.condition.strip()
+            match = re.match(r"(\w+)\s*([<>=!]+)\s*([\d\.\-]+)", condition_str)
+            if not match:
+                passed += 1
+                continue
+            
+            feat_name, op, val_str = match.groups()
+            if feat_name not in FEATURE_NAMES:
+                passed += 1
+                continue
+                
+            try:
+                feat_idx = FEATURE_NAMES.index(feat_name)
+                feat_val = current_features[feat_idx]
+                threshold = float(val_str)
+                
+                violated = False
+                if op == '<':
+                    violated = feat_val < threshold
+                elif op == '>':
+                    violated = feat_val > threshold
+                elif op == '<=':
+                    violated = feat_val <= threshold
+                elif op == '>=':
+                    violated = feat_val >= threshold
+                elif op == '==' or op == '=':
+                    violated = feat_val == threshold
+                elif op == '!=':
+                    violated = feat_val != threshold
+                
+                if not violated:
+                    passed += 1
+            except Exception:
+                passed += 1
+                
+        return passed / total_rules
+
+    # Fallback to static rules
     rules = CLASS_POLICY_RULES.get(device_class, [])
     if not rules:
         return 1.0
@@ -83,6 +153,7 @@ def evaluate_policy_score(device_class: str, current_features: list[float]) -> f
             pass
             
     return passed / len(rules)
+
 
 
 class TrustScoreEngine:
@@ -139,7 +210,7 @@ class TrustScoreEngine:
             ensemble_score = (if_anomaly * 0.6) + (lstm_anomaly * 0.2) + (gnn_anomaly * 0.2)
 
             # Policy Conformance Pillar
-            policy_score = evaluate_policy_score(device_class, current_features)
+            policy_score = await evaluate_policy_score(device_class, current_features)
             policy_penalty = 1.0 - policy_score
             
             # Peer Comparison Pillar
@@ -284,56 +355,65 @@ class TrustScoreEngine:
                     record_anomaly_event(device_id)
 
                 if alert_severity:
-                    tib_data = None
-                    try:
-                        tib_data = generate_tib(
+                    # --- Issue 4: Alert deduplication guard (5-min cooldown per device+severity) ---
+                    dedup_key = f"alert:dedup:{device_id}:{alert_severity}"
+                    if redis_client.exists(dedup_key):
+                        logger.debug(f"Alert suppressed (dedup cooldown active) for {device_id} [{alert_severity}]")
+                    else:
+                        # Set dedup key: 300s for critical/high, 120s for medium
+                        dedup_ttl = 300 if alert_severity in ("critical", "high") else 120
+                        redis_client.setex(dedup_key, dedup_ttl, "1")
+
+                        tib_data = None
+                        try:
+                            tib_data = generate_tib(
+                                device_id=device_id,
+                                device_class=device_class,
+                                feature_vector=current_features,
+                                trust_score=float(effective_trust_score),
+                                prev_trust_score=float(previous_score) if previous_score is not None else float(effective_trust_score),
+                                vae_score=float(vae_dev),
+                                if_score=float(if_anomaly),
+                                lstm_score=float(lstm_anomaly),
+                                gnn_score=float(gnn_anomaly),
+                                alert_type="trust_score_drop"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to generate TIB for {device_id}: {e}")
+
+                        new_alert = Alert(
                             device_id=device_id,
-                            device_class=device_class,
-                            feature_vector=current_features,
+                            severity=alert_severity,
+                            alert_type="trust_score_drop",
+                            message=alert_msg,
                             trust_score=float(effective_trust_score),
-                            prev_trust_score=float(previous_score) if previous_score is not None else float(effective_trust_score),
                             vae_score=float(vae_dev),
                             if_score=float(if_anomaly),
                             lstm_score=float(lstm_anomaly),
                             gnn_score=float(gnn_anomaly),
-                            alert_type="trust_score_drop"
+                            tib=tib_data
                         )
-                    except Exception as e:
-                        logger.warning(f"Failed to generate TIB for {device_id}: {e}")
+                        async with AsyncSessionLocal() as session:
+                            session.add(new_alert)
+                            await session.commit()
+                            await session.refresh(new_alert)
 
-                    new_alert = Alert(
-                        device_id=device_id,
-                        severity=alert_severity,
-                        alert_type="trust_score_drop",
-                        message=alert_msg,
-                        trust_score=float(effective_trust_score),
-                        vae_score=float(vae_dev),
-                        if_score=float(if_anomaly),
-                        lstm_score=float(lstm_anomaly),
-                        gnn_score=float(gnn_anomaly),
-                        tib=tib_data
-                    )
-                    async with AsyncSessionLocal() as session:
-                        session.add(new_alert)
-                        await session.commit()
-                        await session.refresh(new_alert)
-                    
-                    alert_payload = {
-                        "id": new_alert.id,
-                        "device": new_alert.device_id,
-                        "severity": new_alert.severity,
-                        "type": new_alert.alert_type,
-                        "message": new_alert.message,
-                        "score": new_alert.trust_score,
-                        "vae_score": new_alert.vae_score,
-                        "if_score": new_alert.if_score,
-                        "lstm_score": new_alert.lstm_score,
-                        "gnn_score": new_alert.gnn_score,
-                        "time": new_alert.timestamp.isoformat() + "Z",
-                        "is_resolved": new_alert.is_resolved,
-                        "tib": new_alert.tib
-                    }
-                    await sio.emit("new_alert", alert_payload)
+                        alert_payload = {
+                            "id": new_alert.id,
+                            "device": new_alert.device_id,
+                            "severity": new_alert.severity,
+                            "type": new_alert.alert_type,
+                            "message": new_alert.message,
+                            "score": new_alert.trust_score,
+                            "vae_score": new_alert.vae_score,
+                            "if_score": new_alert.if_score,
+                            "lstm_score": new_alert.lstm_score,
+                            "gnn_score": new_alert.gnn_score,
+                            "time": new_alert.timestamp.isoformat() + "Z",
+                            "is_resolved": new_alert.is_resolved,
+                            "tib": new_alert.tib
+                        }
+                        await sio.emit("new_alert", alert_payload)
 
                 # --- Autonomous Response Engine Triggers ---
                 try:
@@ -360,7 +440,7 @@ class TrustScoreEngine:
 
                 # --- Recovery Manager Hook ---
                 try:
-                    evaluate_recovery(device_id, final_trust_score, effective_trust_score)
+                    await evaluate_recovery(device_id, final_trust_score, effective_trust_score)
                 except Exception as rec_err:
                     logger.error(f"Recovery manager evaluation error for {device_id}: {rec_err}")
 

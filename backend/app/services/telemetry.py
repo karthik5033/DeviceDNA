@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import math
+import time
 import traceback
 from datetime import datetime
 from aiokafka import AIOKafkaConsumer
@@ -9,6 +11,7 @@ from app.services.feature_extraction import extract_features
 from app.services.trust_engine import master_trust_engine
 from app.services.hardware_registry import mark_seen
 from app.ml.gnn.scoring import gnn_scorer
+from app.db.redis import redis_client
 from simulator.device_profiles import FLEET
 
 IP_TO_DEVICE_ID = {d['ip_address']: d['id'] for d in FLEET}
@@ -19,6 +22,72 @@ import os
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
 RAW_TOPIC = "raw-flows"
 
+# Minimum seconds between trust evaluations per device (time-based fallback)
+MIN_EVAL_INTERVAL_SECS = 60
+
+# How many historical scores to use for baseline computation (sliding window)
+BASELINE_HISTORY_KEY = "baseline:{device_id}"
+BASELINE_WINDOW = 20  # last 20 readings
+
+
+def _compute_baseline_stats(device_id: str) -> dict:
+    """
+    Reads the last BASELINE_WINDOW feature snapshots stored in Redis for this device
+    and computes mean/std for the three CUSUM-monitored features.
+    Returns a dict compatible with CUSUMDriftEngine.detect_drift().
+    If insufficient history, returns sensible defaults so CUSUM still runs.
+    """
+    key = f"baseline:{device_id}"
+    raw_entries = redis_client.lrange(key, 0, BASELINE_WINDOW - 1)
+
+    parsed = []
+    for entry in raw_entries:
+        try:
+            parsed.append(json.loads(entry))
+        except Exception:
+            pass
+
+    target_keys = ["total_bytes", "avg_packet_size", "external_traffic_ratio"]
+    stats = {}
+
+    for k in target_keys:
+        values = [p[k] for p in parsed if k in p]
+        if len(values) >= 2:
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / len(values)
+            std = math.sqrt(variance) if variance > 0 else 1.0
+        else:
+            # Reasonable defaults per feature when history is insufficient
+            defaults = {
+                "total_bytes": {"mean": 50000.0, "std": 20000.0},
+                "avg_packet_size": {"mean": 512.0, "std": 256.0},
+                "external_traffic_ratio": {"mean": 0.1, "std": 0.05},
+            }
+            mean = defaults[k]["mean"]
+            std = defaults[k]["std"]
+        stats[k] = {"mean": mean, "std": std}
+
+    return stats
+
+
+def _store_feature_snapshot(device_id: str, features_obj) -> None:
+    """
+    Push a compact feature snapshot into the per-device Redis list
+    used for baseline computation. Caps list length at BASELINE_WINDOW.
+    """
+    try:
+        key = f"baseline:{device_id}"
+        snapshot = {
+            "total_bytes": float(features_obj.total_bytes),
+            "avg_packet_size": float(features_obj.avg_packet_size),
+            "external_traffic_ratio": float(features_obj.external_traffic_ratio),
+        }
+        redis_client.lpush(key, json.dumps(snapshot))
+        redis_client.ltrim(key, 0, BASELINE_WINDOW - 1)
+        redis_client.expire(key, 86400)  # 24h TTL
+    except Exception as e:
+        logger.warning(f"Failed to store feature snapshot for baseline [{device_id}]: {e}")
+
 class TelemetryService:
     """
     Consumes raw flows from Kafka, normalizes them, and writes to InfluxDB.
@@ -28,6 +97,8 @@ class TelemetryService:
         self.influx_client = influx_client
         self.consumer = None
         self.flow_count = 0
+        # Issue 3: track last trust evaluation timestamp per device
+        self._last_eval_time: dict[str, float] = {}
 
     async def start(self):
         # Graceful handling if Kafka is not yet up in Docker
@@ -106,26 +177,40 @@ class TelemetryService:
                     gnn_scorer.update_graph(src_id, dst_id)
 
             self.flow_count += 1
-            if self.flow_count % 10 != 0:
+            device_id = flow.get('device_id', 'unknown')
+
+            # Issue 3: evaluate on every 10th flow OR if ≥60s have passed since last eval
+            now = time.time()
+            last_eval = self._last_eval_time.get(device_id, 0.0)
+            time_elapsed = (now - last_eval) >= MIN_EVAL_INTERVAL_SECS
+            flow_threshold = (self.flow_count % 10 == 0)
+
+            if not flow_threshold and not time_elapsed:
                 return
-                
+
+            self._last_eval_time[device_id] = now
+
             features = extract_features(
-                flow.get('device_id', 'unknown'),
+                device_id,
                 flow.get('device_class', 'unknown'),
                 [flow]
             )
-            
+
+            # Issue 1: store snapshot and compute real baseline stats for CUSUM
+            _store_feature_snapshot(device_id, features)
+            baseline_stats = _compute_baseline_stats(device_id)
+
             trust_score = await master_trust_engine.evaluate_device(
-                flow.get('device_id', 'unknown'),
+                device_id,
                 flow.get('device_class', 'unknown'),
                 features.to_tensor_list() if hasattr(features, 'to_tensor_list') else [],
-                {}
+                baseline_stats
             )
             
             final_score_value = float(trust_score.get('trust_score', 0.0)) if isinstance(trust_score, dict) else float(trust_score)
             
             payload = {
-                'device_id': flow.get('device_id'),
+                'device_id': device_id,
                 'score': final_score_value,
                 'timestamp': datetime.utcnow().isoformat()
             }
