@@ -27,7 +27,16 @@ class ResponseEngine:
     PostgreSQL audit logging, and MQTT dispatching.
     """
 
-    async def _log_action_to_db(self, device_id: str, trigger_score: float, response_tier: int, action: str, hitl_decision: str):
+    async def _log_action_to_db(
+        self,
+        device_id: str,
+        trigger_score: float,
+        response_tier: int,
+        action: str,
+        hitl_decision: str,
+        notes: str = None,
+        shap_evidence: dict = None,
+    ):
         """Helper to write response audit records to PostgreSQL."""
         try:
             async with AsyncSessionLocal() as session:
@@ -36,7 +45,9 @@ class ResponseEngine:
                     trigger_score=trigger_score,
                     response_tier=response_tier,
                     action=action,
-                    hitl_decision=hitl_decision
+                    hitl_decision=hitl_decision,
+                    notes=notes,
+                    shap_evidence=shap_evidence,
                 )
                 session.add(audit)
                 await session.commit()
@@ -46,7 +57,7 @@ class ResponseEngine:
 
     # ── Action Execution Methods ──────────────────────────────────────────────
 
-    async def rate_limit_device(self, device_id: str, score: float) -> bool:
+    async def rate_limit_device(self, device_id: str, score: float, notes: str = None) -> bool:
         """Apply Tier 2: Bandwidth rate limiting (automatic)."""
         key = f"response:rate_limit:{device_id}"
         if redis_client.exists(key):
@@ -60,14 +71,14 @@ class ResponseEngine:
             "score": score
         })
         
-        # Publish MQTT command (simulate rate limiting by adding 500ms delay in simulator)
+        # Publish MQTT command
         mqtt_dispatcher.dispatch_command(device_id, "rate_limit", relay_open=False, rate_delay_ms=500)
         
-        await self._log_action_to_db(device_id, score, 2, "rate_limit", "automatic")
+        await self._log_action_to_db(device_id, score, 2, "rate_limit", "automatic", notes=notes)
         logger.warning(f"⚠️ RESPONSE ACTION [Tier 2] — rate_limit | device={device_id} | score={score:.2f}")
         return True
 
-    async def sandbox_device(self, device_id: str, score: float) -> bool:
+    async def sandbox_device(self, device_id: str, score: float, notes: str = None) -> bool:
         """Apply Tier 3: Sandboxing / VLAN redirect (automatic)."""
         key = f"response:sandboxed:{device_id}"
         if redis_client.exists(key):
@@ -84,7 +95,7 @@ class ResponseEngine:
         # Publish MQTT command
         mqtt_dispatcher.dispatch_command(device_id, "sandbox", relay_open=False)
         
-        await self._log_action_to_db(device_id, score, 3, "sandbox", "automatic")
+        await self._log_action_to_db(device_id, score, 3, "sandbox", "automatic", notes=notes)
         logger.warning(f"🔒 RESPONSE ACTION [Tier 3] — sandbox | device={device_id} | score={score:.2f}")
         return True
 
@@ -235,6 +246,41 @@ class ResponseEngine:
         logger.warning(f"⏳ HITL ENQUEUED [Tier {tier}] — {action} pending approval for device={device_id} | score={score:.2f}")
         return True
 
+    async def release_device(self, device_id: str, score: float, hitl_decision: str = "manual_override") -> dict:
+        """
+        Releases ALL active restrictions for a device (rate_limit, sandbox, isolation, honeypot).
+        Dispatches an MQTT 'recover' command and writes an audit record.
+        Returns a dict describing which restrictions were active and released.
+        """
+        released = []
+        restriction_map = {
+            "rate_limit": f"response:rate_limit:{device_id}",
+            "sandbox": f"response:sandboxed:{device_id}",
+            "isolation": f"response:isolated:{device_id}",
+            "honeypot": f"response:honeypot:{device_id}",
+        }
+        for name, key in restriction_map.items():
+            if redis_client.exists(key):
+                redis_client.delete(key)
+                released.append(name)
+
+        # Also clear any pending HITL queue and override key
+        redis_client.delete(f"response:pending:{device_id}")
+        redis_client.delete(f"response:override:{device_id}")
+
+        if released:
+            mqtt_dispatcher.dispatch_command(device_id, "recover", relay_open=False)
+            await sio.emit("device_released", {
+                "device_id": device_id,
+                "released": released,
+                "timestamp": _utcnow_iso(),
+            })
+            notes = f"Manual release. Cleared: {', '.join(released)}"
+            await self._log_action_to_db(device_id, score, 1, "release", hitl_decision, notes=notes)
+            logger.info(f"🔓 RELEASE — device={device_id} | cleared={released} | decision={hitl_decision}")
+
+        return {"device_id": device_id, "released": released}
+
     # ── Status Query ──────────────────────────────────────────────────────────
 
     @staticmethod
@@ -245,7 +291,8 @@ class ResponseEngine:
         isolated = redis_client.exists(f"response:isolated:{device_id}") == 1
         honeypot = redis_client.exists(f"response:honeypot:{device_id}") == 1
         forensic = redis_client.exists(f"response:forensic:{device_id}") == 1
-        
+        override = redis_client.exists(f"response:override:{device_id}") == 1
+
         pending_raw = redis_client.get(f"response:pending:{device_id}")
         pending = json.loads(pending_raw) if pending_raw else None
 
@@ -256,7 +303,9 @@ class ResponseEngine:
             "isolated": isolated,
             "honeypot": honeypot,
             "forensic_capture": forensic,
-            "pending_approval": pending
+            "hitl_override_active": override,
+            "pending_approval": pending,
+            "any_active": any([rate_limited, sandboxed, isolated, honeypot]),
         }
 
 
