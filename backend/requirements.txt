@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # ── Core Framework ──────────────────────────────────────────────────────────
 fastapi==0.133.1
 uvicorn==0.41.0
@@ -51,8 +53,8 @@ typing-inspection==0.4.2
 
 # ── ML / AI ─────────────────────────────────────────────────────────────────
 # PyTorch CPU build (smaller, no CUDA required for inference in Docker)
-torch==2.3.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision==0.18.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu
+torchvision==0.18.0+cpu
 numpy==1.26.4
 scikit-learn==1.5.2
 joblib==1.4.2

@@ -83,7 +83,7 @@ async def get_all_devices():
             raw_data = redis_client.get(key)
             if raw_data:
                 data = json.loads(raw_data)
-                devices[device_id] = data.get("trust_score", 100.0)
+                devices[device_id] = data.get("score") or data.get("trust_score") or 100.0
         except Exception:
             continue
     return devices
@@ -105,8 +105,17 @@ async def get_all_fleet_devices():
         if raw_data:
             try:
                 cached = json.loads(raw_data)
-                score = cached.get("trust_score", 100.0)
-                status = cached.get("status", "trusted")
+                score = cached.get("score") or cached.get("trust_score") or 100.0
+                status = cached.get("status")
+                if not status:
+                    if score >= 80:
+                        status = "trusted"
+                    elif score >= 60:
+                        status = "guarded"
+                    elif score >= 40:
+                        status = "suspicious"
+                    else:
+                        status = "critical"
                 pillars = {
                     "digital_twin": cached.get("vae_score", 0.0),
                     "isolation_forest": cached.get("if_score", 0.0),
