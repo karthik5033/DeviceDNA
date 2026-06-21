@@ -105,7 +105,7 @@ async def stream_telemetry():
             flows = generate_batch(100)
             
             # Scenario Injection (Random chance every ~100 cycles)
-            if cycle_count % 100 == 0:
+            if cycle_count % 100 == 0 and os.getenv("DISABLE_ATTACK_INJECTION", "false").lower() != "true":
                 logger.info(f"Cycle {cycle_count}: Injecting Threat Scenarios...")
                 flows.append(AttackScenarios.scenario_1_botnet_c2())
                 flows.append(AttackScenarios.scenario_2_slow_exfiltration())
