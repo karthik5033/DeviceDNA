@@ -13,8 +13,8 @@ echo Root directory: %ROOT%
 echo.
 
 :: Step 1 — Start all Docker services
-echo [1/4] Starting Docker infrastructure (Postgres, Redis, InfluxDB, Kafka, Mosquitto)...
-docker-compose -f "%ROOT%\docker-compose.yml" up -d postgres redis influxdb zookeeper kafka mosquitto
+echo [1/4] Starting Docker infrastructure (Postgres, Redis, InfluxDB, Kafka)...
+docker-compose -f "%ROOT%\docker-compose.yml" up -d postgres redis influxdb zookeeper kafka
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Docker failed to start. Make sure Docker Desktop is running.
     pause
