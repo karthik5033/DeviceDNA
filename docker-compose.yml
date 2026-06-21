@@ -19,6 +19,19 @@ services:
       timeout: 5s
       retries: 10
 
+  # PostgreSQL Web UI
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@devicedna.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
   # Time-Series Database (Telemetry)
   influxdb:
     image: influxdb:2.7
@@ -90,6 +103,18 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  # Kafka Web UI
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: DeviceDNA
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
 
   seeder:
     image: python:3.11-slim

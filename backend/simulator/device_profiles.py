@@ -125,13 +125,12 @@ DEVICE_PROFILES: Dict[str, Dict[str, Any]] = {
 def generate_fleet():
     fleet = []
     
-    # 1. Add 5 Physical ESP32 Devices (Observed behavior)
+    # 1. Add 4 Physical ESP32 Devices (Observed behavior)
     physical_specs = [
-        ('cam_01', 'Camera Node (ESP32-CAM)', 'camera'),
-        ('sensor_01', 'Sensor Node (DHT11)', 'sensor'),
-        ('motion_01', 'Motion Node (PIR)', 'access_control'),
-        ('gateway_01', 'Gateway Node (Relay)', 'access_control'),
-        ('cam_02', 'Camera Node 2 (ESP32-CAM)', 'camera')
+        ('dht11_node', 'Environmental Monitor (DHT11)', 'sensor'),
+        ('mq135_node', 'Air Quality Node (MQ135)', 'sensor'),
+        ('ir_prox_node', 'Intrusion Sensor (IR)', 'access_control'),
+        ('ldr_node', 'Smart Lighting (LDR)', 'sensor')
     ]
     
     for dev_id, name, d_class in physical_specs:

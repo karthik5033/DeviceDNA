@@ -460,7 +460,8 @@ class TrustScoreEngine:
                         device_id=device_id,
                         trust_score=float(effective_trust_score),
                         gnn_score=float(gnn_anomaly),
-                        shap_evidence=shap_evidence
+                        shap_evidence=shap_evidence,
+                        previous_trust_score=float(previous_score) if previous_score is not None else None
                     )
                 except Exception as resp_err:
                     logger.error(f"Response engine trigger error for {device_id}: {resp_err}")

@@ -163,11 +163,12 @@ class ResponseEngine:
         device_id: str,
         trust_score: float, # Effective trust score
         gnn_score: float,
-        shap_evidence: dict = None
+        shap_evidence: dict = None,
+        previous_trust_score: float = None
     ) -> list[str]:
         """
-        Maps the effective trust score to the 5-Tier Risk Classification System,
-        automatically triggering Tiers 2-3 and queuing Tiers 4-5 for HITL approval.
+        Maps the effective trust score to the 5-Tier Risk Classification System.
+        Includes Rate of Decline logic: rapid score drops accelerate escalation (PRD 2.2).
         """
         triggered: list[str] = []
 
@@ -185,28 +186,41 @@ class ResponseEngine:
 
         # ── 3. Apply 5-Tier Risk Classification mapping ──────────────────────
         
-        # Tier 1: Monitor (Score >= 80)
-        if trust_score >= 80:
-            pass  # Handled by RecoveryManager to release restrictions
+        # Calculate base tier
+        base_tier = 1
+        if trust_score < 20:
+            base_tier = 5
+        elif trust_score < 40:
+            base_tier = 4
+        elif trust_score < 60:
+            base_tier = 3
+        elif trust_score < 80:
+            base_tier = 2
 
-        # Tier 2: Rate Limit (60 <= Score < 80)
-        elif trust_score >= 60:
+        # Apply Rate of Decline logic (PRD 2.2)
+        if previous_trust_score is not None and base_tier > 1:
+            drop = previous_trust_score - trust_score
+            if drop >= 25.0:
+                logger.warning(f"📉 RAPID DECLINE: {device_id} dropped {drop:.1f} pts. Escalating +2 tiers.")
+                base_tier = min(5, base_tier + 2)
+            elif drop >= 15.0:
+                logger.warning(f"📉 FAST DECLINE: {device_id} dropped {drop:.1f} pts. Escalating +1 tier.")
+                base_tier = min(5, base_tier + 1)
+
+        # Trigger corresponding action based on final effective tier
+        if base_tier == 1:
+            pass  # Handled by RecoveryManager
+        elif base_tier == 2:
             if await self.rate_limit_device(device_id, trust_score):
                 triggered.append("rate_limit_device")
-
-        # Tier 3: Sandbox (40 <= Score < 60)
-        elif trust_score >= 40:
+        elif base_tier == 3:
             if await self.sandbox_device(device_id, trust_score):
                 triggered.append("sandbox_device")
-
-        # Tier 4: Quarantine (20 <= Score < 40)
-        elif trust_score >= 20:
+        elif base_tier == 4:
             action_taken = await self._enqueue_hitl(device_id, 4, "quarantine", trust_score, shap_evidence)
             if action_taken:
                 triggered.append("quarantine_pending")
-
-        # Tier 5: Honeypot (Score < 20)
-        else:
+        elif base_tier == 5:
             action_taken = await self._enqueue_hitl(device_id, 5, "honeypot", trust_score, shap_evidence)
             if action_taken:
                 triggered.append("honeypot_pending")
