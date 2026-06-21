@@ -18,13 +18,13 @@ const char* mqtt_broker   = "192.168.43.1"; // Host laptop IP address
 const int   mqtt_port     = 1883;
 
 // Device Identity
-const char* device_id     = "gateway_01";
+const char* device_id     = "ir_sensor";
 const char* device_type   = "gateway";
 
 // MQTT Topics
 const char* topic_telemetry = "devicedna/telemetry";
-const char* topic_command   = "devicedna/gateway_01/command";
-const char* topic_status    = "devicedna/status/gateway_01";
+const char* topic_command   = "devicedna/ir_sensor/command";
+const char* topic_status    = "devicedna/status/ir_sensor";
 
 // ── Pin Mappings ────────────────────────────────────────────────────────────
 #define RELAY_PIN       26  // Pin triggering the relay module

@@ -38,7 +38,7 @@ Replace the hardcoded thresholds in `evaluate_triggers()` with the 5-tier system
 
 ### 6. Peer Consensus & Immunization (Advanced)
 - **Consensus**: Compare a flagged device's vector against peers of the same class. If unique, escalate confidence.
-- **Immunization**: If `cam_01` hits Tier 4, dynamically broadcast `devicedna/broadcast/immunize` to tighten thresholds for all cameras.
+- **Immunization**: If `dht11_sensor` hits Tier 4, dynamically broadcast `devicedna/broadcast/immunize` to tighten thresholds for all cameras.
 
 ## User Review Required
 > [!IMPORTANT] 

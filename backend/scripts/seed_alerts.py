@@ -20,7 +20,7 @@ DEMO_ALERTS = [
     # Critical alerts
     {"device_id": "SIM-0007",  "severity": "critical", "trust_score": 18.4, "vae": 0.92, "if_s": 0.88, "lstm": 0.79, "gnn": 0.91, "msg": "Device SIM-0007 trust score critically low (18.4). Possible DDoS source detected.", "minutes_ago": 45},
     {"device_id": "SIM-0046",  "severity": "critical", "trust_score": 22.1, "vae": 0.89, "if_s": 0.91, "lstm": 0.85, "gnn": 0.87, "msg": "Device SIM-0046 trust score critically low (22.1). Lateral movement detected toward medical subnet.", "minutes_ago": 120},
-    {"device_id": "cam_02",    "severity": "critical", "trust_score": 14.7, "vae": 0.95, "if_s": 0.93, "lstm": 0.88, "gnn": 0.94, "msg": "Camera cam_02 critically anomalous. External RTSP stream detected to unknown IP.", "minutes_ago": 210},
+    {"device_id": "mq135_sensor",    "severity": "critical", "trust_score": 14.7, "vae": 0.95, "if_s": 0.93, "lstm": 0.88, "gnn": 0.94, "msg": "Camera mq135_sensor critically anomalous. External RTSP stream detected to unknown IP.", "minutes_ago": 210},
     {"device_id": "SIM-0040",  "severity": "critical", "trust_score": 27.6, "vae": 0.83, "if_s": 0.79, "lstm": 0.81, "gnn": 0.76, "msg": "Device SIM-0040 trust score critically low (27.6). CUSUM drift alarm — data exfiltration pattern.", "minutes_ago": 330},
 
     # High severity alerts
@@ -29,16 +29,16 @@ DEMO_ALERTS = [
     {"device_id": "SIM-0039",  "severity": "high", "trust_score": 54.8, "vae": 0.65, "if_s": 0.62, "lstm": 0.58, "gnn": 0.51, "msg": "Device SIM-0039 trust score dropped sharply by 18.3 points in last cycle.", "minutes_ago": 52},
     {"device_id": "SIM-0042",  "severity": "high", "trust_score": 52.7, "vae": 0.69, "if_s": 0.71, "lstm": 0.63, "gnn": 0.62, "msg": "Device SIM-0042 trust score high risk (52.7). Elevated bytes_sent above class baseline.", "minutes_ago": 67},
     {"device_id": "SIM-0043",  "severity": "high", "trust_score": 59.3, "vae": 0.55, "if_s": 0.49, "lstm": 0.51, "gnn": 0.44, "msg": "Device SIM-0043 sustained high-risk zone. Peer comparison anomaly detected.", "minutes_ago": 90},
-    {"device_id": "sensor_01", "severity": "high", "trust_score": 48.2, "vae": 0.70, "if_s": 0.67, "lstm": 0.72, "gnn": 0.58, "msg": "Sensor sensor_01 high risk (48.2). External traffic ratio 0.31 exceeds class maximum of 0.05.", "minutes_ago": 135},
+    {"device_id": "ldr_sensor", "severity": "high", "trust_score": 48.2, "vae": 0.70, "if_s": 0.67, "lstm": 0.72, "gnn": 0.58, "msg": "Sensor ldr_sensor high risk (48.2). External traffic ratio 0.31 exceeds class maximum of 0.05.", "minutes_ago": 135},
     {"device_id": "SIM-0026",  "severity": "high", "trust_score": 55.9, "vae": 0.58, "if_s": 0.61, "lstm": 0.49, "gnn": 0.53, "msg": "Device SIM-0026 dropped to high risk. GNN lateral movement edge anomaly.", "minutes_ago": 180},
     {"device_id": "SIM-0038",  "severity": "high", "trust_score": 53.3, "vae": 0.67, "if_s": 0.64, "lstm": 0.60, "gnn": 0.57, "msg": "Device SIM-0038 sustained high-risk zone (53.3). LSTM sequence forecast variance exceeded.", "minutes_ago": 225},
 
     # Medium alerts
     {"device_id": "SIM-0005",  "severity": "medium", "trust_score": 69.8, "vae": 0.35, "if_s": 0.31, "lstm": 0.29, "gnn": 0.22, "msg": "Device SIM-0005 trust score dropped sharply by 16.2 points from 86.0 to 69.8.", "minutes_ago": 8},
     {"device_id": "SIM-0022",  "severity": "medium", "trust_score": 69.2, "vae": 0.38, "if_s": 0.34, "lstm": 0.31, "gnn": 0.19, "msg": "Device SIM-0022 trust score dropped sharply by 17.1 points from 86.3 to 69.2.", "minutes_ago": 35},
-    {"device_id": "cam_01",    "severity": "medium", "trust_score": 61.0, "vae": 0.45, "if_s": 0.41, "lstm": 0.38, "gnn": 0.29, "msg": "Camera cam_01 medium risk (61.0). External RTSP ratio slightly elevated above normal.", "minutes_ago": 95},
-    {"device_id": "gateway_01","severity": "medium", "trust_score": 64.3, "vae": 0.40, "if_s": 0.37, "lstm": 0.33, "gnn": 0.25, "msg": "Gateway gateway_01 medium risk (64.3). TCP ratio anomaly detected — unusual for class.", "minutes_ago": 160},
-    {"device_id": "motion_01", "severity": "medium", "trust_score": 66.7, "vae": 0.36, "if_s": 0.32, "lstm": 0.28, "gnn": 0.20, "msg": "Motion sensor motion_01 dropped sharply by 15.4 points from 82.1 to 66.7.", "minutes_ago": 270},
+    {"device_id": "dht11_sensor",    "severity": "medium", "trust_score": 61.0, "vae": 0.45, "if_s": 0.41, "lstm": 0.38, "gnn": 0.29, "msg": "Camera dht11_sensor medium risk (61.0). External RTSP ratio slightly elevated above normal.", "minutes_ago": 95},
+    {"device_id": "ir_sensor","severity": "medium", "trust_score": 64.3, "vae": 0.40, "if_s": 0.37, "lstm": 0.33, "gnn": 0.25, "msg": "Gateway ir_sensor medium risk (64.3). TCP ratio anomaly detected — unusual for class.", "minutes_ago": 160},
+    {"device_id": "esp8266_wifi", "severity": "medium", "trust_score": 66.7, "vae": 0.36, "if_s": 0.32, "lstm": 0.28, "gnn": 0.20, "msg": "Motion sensor esp8266_wifi dropped sharply by 15.4 points from 82.1 to 66.7.", "minutes_ago": 270},
 ]
 
 async def seed_demo_alerts():

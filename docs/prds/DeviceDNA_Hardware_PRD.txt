@@ -345,11 +345,11 @@ DEVICE_TYPE per board.
 #define MQTT_PASS     "" 
  
 // ── Change these per board ── 
-// CAM board:     "cam_01",     "camera" 
-// Sensor board:  "sensor_01",  "sensor" 
-// Motion board:  "motion_01",  "motion" 
-// Gateway board: "gateway_01", "gateway" 
-#define DEVICE_ID   "cam_01" 
+// CAM board:     "dht11_sensor",     "camera" 
+// Sensor board:  "ldr_sensor",  "sensor" 
+// Motion board:  "esp8266_wifi",  "motion" 
+// Gateway board: "ir_sensor", "gateway" 
+#define DEVICE_ID   "dht11_sensor" 
 #define DEVICE_TYPE "camera" 
  
 // ── MQTT Topics ── 
@@ -481,7 +481,7 @@ Confidential — Team Use Only Page 13
 #include <ArduinoJson.h> 
  
 // CAM-specific config override (must match config.h) 
-// DEVICE_ID   = "cam_01" 
+// DEVICE_ID   = "dht11_sensor" 
 // DEVICE_TYPE = "camera" 
  
 // CAM-specific pins (don't conflict with camera pins 0,2,4,5,18,19,21,22,23,25,26,27,32) 
@@ -570,7 +570,7 @@ void loop() {
 } 
  
 3.4 ESP32 + DHT11 Sensor Node Firmware (esp32_sensor_node.ino) 
-In config.h, set DEVICE_ID = 'sensor_01' and DEVICE_TYPE = 'sensor'. The DHT11 reads real temperature and 
+In config.h, set DEVICE_ID = 'ldr_sensor' and DEVICE_TYPE = 'sensor'. The DHT11 reads real temperature and 
 humidity — these real values get embedded into the MQTT telemetry payload, making your sensor data 
 genuinely real. 
  
@@ -648,7 +648,7 @@ void loop() {
 } 
  
 3.5 ESP32 + PIR Motion Node Firmware (esp32_motion_node.ino) 
-In config.h, set DEVICE_ID = 'motion_01' and DEVICE_TYPE = 'motion'. The PIR creates genuine event-driven 
+In config.h, set DEVICE_ID = 'esp8266_wifi' and DEVICE_TYPE = 'motion'. The PIR creates genuine event-driven 
 traffic bursts — when motion is detected, the telemetry profile changes dramatically, demonstrating event-
 triggered device behavior. 
  
@@ -739,7 +739,7 @@ Serial.println(")");
 DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
 Confidential — Team Use Only Page 18 
 3.6 ESP32 + Relay Gateway Node Firmware [4-board plan] 
-In config.h, set DEVICE_ID = 'gateway_01' and DEVICE_TYPE = 'gateway'. The physical relay clicking when the 
+In config.h, set DEVICE_ID = 'ir_sensor' and DEVICE_TYPE = 'gateway'. The physical relay clicking when the 
 AI sends a quarantine command is the most dramatic demo moment. 
  
 #include "config.h" 
@@ -846,10 +846,10 @@ All ESP32s, attacker
 Attacker Laptop Attack orchestrator 192.168.43.YYY (DHCP 
 assigned) 
 Server, ESP32s 
-ESP32-CAM cam_01 192.168.43.ZZZ (DHCP) MQTT Broker only 
-ESP32 Sensor sensor_01 192.168.43.AAA (DHCP) MQTT Broker only 
-ESP32 Motion motion_01 192.168.43.BBB (DHCP) MQTT Broker only 
-ESP32 Gateway gateway_01 [opt] 192.168.43.CCC (DHCP) MQTT Broker only 
+ESP32-CAM dht11_sensor 192.168.43.ZZZ (DHCP) MQTT Broker only 
+ESP32 Sensor ldr_sensor 192.168.43.AAA (DHCP) MQTT Broker only 
+ESP32 Motion esp8266_wifi 192.168.43.BBB (DHCP) MQTT Broker only 
+ESP32 Gateway ir_sensor [opt] 192.168.43.CCC (DHCP) MQTT Broker only 
  
 4.2 Critical Setup Step — Finding Server Laptop IP 
 The server laptop's IP address must be set in config.h before flashing ESP32s. To find it: 
@@ -1005,10 +1005,10 @@ same event loop. Each has its own behavior profile, MQTT client, and telemetry g
 Device Class Physical Virtual Total Notes 
 Camera 1 (ESP32-
 CAM) 
-11 12 Virtual ones are cam_02 to cam_12 
+11 12 Virtual ones are mq135_sensor to cam_12 
 Sensor 1 (DHT11) 9 10 Virtual ones are sensor_02 to sensor_10 
 Motion/PIR 1 (HC-SR501) 4 5 Virtual ones are motion_02 to motion_05 
-Gateway 1 (Relay) or 0 5 or 6 6 Virtual ones are gateway_01 to gateway_06 
+Gateway 1 (Relay) or 0 5 or 6 6 Virtual ones are ir_sensor to gateway_06 
 Medical 0 8 8 All virtual — med_01 to med_08 
 Industrial 0 9 9 All virtual — ind_01 to ind_09 
 TOTAL 3 or 4 42 or 43 50 50 devices in ecosystem 
@@ -1309,7 +1309,7 @@ from virtual_devices.simulator import ATTACK_STATE
  
 print('[ATTACK 1] Stealth reconnaissance starting...') 
 # Inject subtle recon behavior into 3 cameras 
-for cam_id in ['cam_02', 'cam_03', 'cam_04']: 
+for cam_id in ['mq135_sensor', 'cam_03', 'cam_04']: 
     ATTACK_STATE[cam_id] = { 
         'type': 'recon', 
         'unique_dst_ips_delta': 8,   # scans 8 more IPs than normal 
@@ -1318,7 +1318,7 @@ for cam_id in ['cam_02', 'cam_03', 'cam_04']:
     } 
 time.sleep(120)  # Run for 2 minutes 
 # Cleanup 
-for cam_id in ['cam_02', 'cam_03', 'cam_04']: 
+for cam_id in ['mq135_sensor', 'cam_03', 'cam_04']: 
     del ATTACK_STATE[cam_id] 
 print('[ATTACK 1] Recon complete') 
  
@@ -1330,7 +1330,7 @@ GNN — new edge
 T+30s 3 camera trust scores drop from 95 to 72 
 (GUARDED) 
 IF — port entropy 
-T+60s CUSUM accumulator bar starts rising on cam_02 CUSUM beginning 
+T+60s CUSUM accumulator bar starts rising on mq135_sensor CUSUM beginning 
 T+90s Alert: 'Stealth Reconnaissance Detected — 3 
 Cameras Probed' 
 Fusion engine 
@@ -1344,7 +1344,7 @@ cluster anomaly.
 What Happens Technically 
 • Attacker laptop runs a Python script that sends periodic HTTP requests (beaconing pattern) to the server, 
 mimicking compromised device behavior 
-• Virtual device ATTACK_STATE injects C2 beaconing telemetry into cam_02 and cam_03 
+• Virtual device ATTACK_STATE injects C2 beaconing telemetry into mq135_sensor and cam_03 
 • ESP32-CAM gets a MQTT command to enter 'beacon mode' (external_ratio increases in its payload) 
 • Three cameras now show synchronized anomalies — Global GMVAE sees cluster instability 
  
@@ -1378,8 +1378,8 @@ def beacon(device_name: str, jitter: float = 5.0):
  
 # Launch 3 synchronized beacons 
 threads = [ 
-    threading.Thread(target=beacon, args=('cam_01_physical',)),  # real ESP32-CAM 
-    threading.Thread(target=beacon, args=('cam_02_virtual',), kwargs={'jitter': 3}), 
+    threading.Thread(target=beacon, args=('dht11_sensor_physical',)),  # real ESP32-CAM 
+    threading.Thread(target=beacon, args=('mq135_sensor_virtual',), kwargs={'jitter': 3}), 
     threading.Thread(target=beacon, args=('cam_03_virtual',), kwargs={'jitter': 4}), 
 ] 
 for t in threads: t.daemon = True; t.start() 
@@ -1395,7 +1395,7 @@ from virtual_devices.simulator import ATTACK_STATE
 import time 
  
 # Also tell virtual cameras to show C2 telemetry patterns 
-for cam_id in ['cam_02', 'cam_03']: 
+for cam_id in ['mq135_sensor', 'cam_03']: 
     ATTACK_STATE[cam_id] = { 
         'type': 'c2_beaconing', 
         'intensity': 0.35, 
@@ -1407,7 +1407,7 @@ import json
 c = mqtt.Client(); c.connect('localhost', 1883) 
 DeviceDNA  |  Hardware Implementation & Demo PRD  |  Eclipse Hackathon 2025 
 Confidential — Team Use Only Page 33 
-c.publish('devicedna/inject/cam_01', json.dumps({'attack': 'c2', 'intensity': 0.4})) 
+c.publish('devicedna/inject/dht11_sensor', json.dumps({'attack': 'c2', 'intensity': 0.4})) 
 print('[ATTACK 2] Behavioral injection complete') 
  
 Expected Dashboard Effect 
@@ -1420,10 +1420,10 @@ T+60s Synchronized timing anomaly flagged LSTM: periodic pattern
 T+90s GMVAE cluster entropy rises — 'Camera 
 cluster instability' 
 Global GMVAE 
-T+120s Trust scores: cam_01=48, cam_02=41, 
+T+120s Trust scores: dht11_sensor=48, mq135_sensor=41, 
 cam_03=44 — all SUSPICIOUS 
 Fusion engine 
-T+180s AUTO-RESPONSE: cam_01 QUARANTINED 
+T+180s AUTO-RESPONSE: dht11_sensor QUARANTINED 
 — ESP32-CAM LED turns RED 
 Autonomous response 
 T+180s Physical ESP32-CAM blinks red 3x and stays 
@@ -1477,14 +1477,14 @@ for med_id in ['med_01', 'med_02']:
     ATTACK_STATE[med_id] = { 
         'type': 'lateral_movement', 
         'target': 'database_server', 
-        'new_edges': ['med_01->db_server', 'med_01->cam_01'], 
+        'new_edges': ['med_01->db_server', 'med_01->dht11_sensor'], 
         'intensity': 0.6 
     } 
  
 Expected Dashboard Effect 
 Timeline What Dashboard Shows Detector 
 T+0s D3 graph: new red edges appear from med_01 to 
-cam_01 and db_server 
+dht11_sensor and db_server 
 GNN: new topology 
 T+30s Graph edges multiply — lateral spread visible 
 across network 
@@ -1970,7 +1970,7 @@ Relay clicking randomly Floating GPIO pin Add 10k pull-down resistor on RELAY_PI
  
 Demo Day Emergency Procedures 
 ESP32 LED stuck on wrong color: Send manual MQTT command: 
-  mosquitto_pub -h localhost -t 'devicedna/command/cam_01' -m '{"action":"release","trust_score":95}' 
+  mosquitto_pub -h localhost -t 'devicedna/command/dht11_sensor' -m '{"action":"release","trust_score":95}' 
  
 Dashboard frozen: Refresh browser. WebSocket auto-reconnects within 3 seconds. 
  
