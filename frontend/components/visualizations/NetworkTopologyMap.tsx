@@ -72,7 +72,8 @@ export default function NetworkTopologyMap({
       const hue = Math.round((d.trust_score / 100) * 120);
       const sat = d.trust_score < 50 ? 85 : 75;
       const lit = d.trust_score < 30 ? 45 : d.trust_score < 70 ? 50 : 45;
-      let color = d.isIsolated ? '#475569' : `hsl(${hue}, ${sat}%, ${lit}%)`;
+      const isExternal = d.id && String(d.id).includes('.');
+      let color = d.isIsolated ? '#475569' : isExternal ? '#0ea5e9' : `hsl(${hue}, ${sat}%, ${lit}%)`;
       
       d3.select(this)
         .attr('fill', color)
@@ -87,10 +88,11 @@ export default function NetworkTopologyMap({
       // Don't modify the contained badges
       if (d3.select(this).text() === 'CONTAINED') return;
       const isAnom = d.isAnomalous && !d.isIsolated;
+      const isExternal = d.id && String(d.id).includes('.');
       d3.select(this)
         .attr('font-size', isAnom ? '13px' : '9px')
         .attr('font-weight', isAnom ? 'bold' : 'normal')
-        .attr('fill', d.isIsolated ? '#475569' : isAnom ? '#ef4444' : 'rgba(255,255,255,0.5)')
+        .attr('fill', d.isIsolated ? '#475569' : isExternal ? '#3edcff' : isAnom ? '#ef4444' : 'rgba(255,255,255,0.5)')
         .style("filter", isAnom ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
     });
   }, [liveScores]);
@@ -109,8 +111,9 @@ export default function NetworkTopologyMap({
     svg.on('click', () => setActionNode(null));
 
     // Continuous HSL gradient: red(0) → orange(30) → yellow(50) → green(120)
-    const colorScale = (score: number, isIsolated: boolean) => {
+    const colorScale = (score: number, isIsolated: boolean, id: string) => {
       if (isIsolated) return '#475569';
+      if (id && String(id).includes('.')) return '#0ea5e9';
       // Map score 0-100 to hue 0-120 (red to green)
       const hue = Math.round((score / 100) * 120);
       const saturation = score < 50 ? 85 : 75;
@@ -187,17 +190,23 @@ export default function NetworkTopologyMap({
       .selectAll('circle')
       .data(data.nodes)
       .join('circle')
-      .attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 12 : 6)
-      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated))
+      .attr('r', (d: any) => {
+         const isExternal = d.id && String(d.id).includes('.');
+         if (isExternal) return 4;
+         return d.isAnomalous && !d.isIsolated ? 12 : 6;
+      })
+      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated, d.id))
       .attr('stroke', (d: any) => d.isAnomalous && !d.isIsolated ? '#ffffff' : 'none')
       .attr('stroke-width', (d: any) => d.isAnomalous && !d.isIsolated ? 2 : 0)
       .style('cursor', 'pointer')
       .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "url(#glow)" : "none")
-      .on('mouseover', function() {
-        d3.select(this).attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 14 : 8);
+      .on('mouseover', function(event, d: any) {
+        const isExternal = d.id && String(d.id).includes('.');
+        d3.select(this).attr('r', isExternal ? 6 : (d.isAnomalous && !d.isIsolated ? 14 : 8));
       })
-      .on('mouseout', function() {
-        d3.select(this).attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 12 : 6);
+      .on('mouseout', function(event, d: any) {
+        const isExternal = d.id && String(d.id).includes('.');
+        d3.select(this).attr('r', isExternal ? 4 : (d.isAnomalous && !d.isIsolated ? 12 : 6));
       })
       .on('click', (event, d: any) => {
          event.stopPropagation();
@@ -221,6 +230,8 @@ export default function NetworkTopologyMap({
       .attr('font-weight', (d: any) => d.isAnomalous && !d.isIsolated ? 'bold' : 'normal')
       .attr('fill', (d: any) => {
          if (d.isIsolated) return '#475569';
+         const isExternal = d.id && String(d.id).includes('.');
+         if (isExternal) return '#3edcff';
          return d.isAnomalous ? '#ef4444' : 'rgba(255,255,255,0.5)';
       })
       .attr('font-family', 'monospace')

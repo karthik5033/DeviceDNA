@@ -104,12 +104,12 @@ export default function DashboardOverview() {
       .then(res => res.json())
       .then(data => {
         setTrustScores(data);
-        const values = Object.values(data) as number[];
-        setActiveDevices(values.length);
-        if (values.length > 0) {
-            setAvgTrustScore(values.reduce((a, b) => a + b, 0) / values.length);
+        const managedKeys = Object.keys(data).filter(k => !String(k).includes('.'));
+        setActiveDevices(managedKeys.length);
+        if (managedKeys.length > 0) {
+            setAvgTrustScore(managedKeys.reduce((a, b) => a + data[b], 0) / managedKeys.length);
         }
-        setCriticalAlerts(values.filter(v => v < 40).length);
+        setCriticalAlerts(managedKeys.filter(k => data[k] < 40).length);
       })
       .catch(err => console.error("Failed to fetch initial devices", err));
 
@@ -124,13 +124,13 @@ export default function DashboardOverview() {
     socket.on('trust_update', (data) => {
         setTrustScores(prev => {
             const newScores = { ...prev, [data.device_id]: data.score };
-            const values = Object.values(newScores) as number[];
-            setActiveDevices(values.length);
-            const computedAvg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+            const managedKeys = Object.keys(newScores).filter(k => !String(k).includes('.'));
+            setActiveDevices(managedKeys.length);
+            const computedAvg = managedKeys.length > 0 ? managedKeys.reduce((a, b) => a + newScores[b], 0) / managedKeys.length : 0;
             if (Number.isFinite(computedAvg)) {
                 setAvgTrustScore(computedAvg);
             }
-            setCriticalAlerts(values.filter(v => v < 40).length);
+            setCriticalAlerts(managedKeys.filter(k => newScores[k] < 40).length);
             return newScores;
         });
         
