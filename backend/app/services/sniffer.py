@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import json
 import logging
@@ -6,6 +7,10 @@ import asyncio
 import threading
 import uuid
 from datetime import datetime
+
+# Add backend directory to sys.path to enable imports when run directly
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 from scapy.all import sniff, IP, TCP, UDP, ICMP
 from simulator.device_profiles import FLEET
 
@@ -228,3 +233,33 @@ class LivePacketSniffer:
 
 # Singleton instance
 live_sniffer = LivePacketSniffer()
+
+if __name__ == "__main__":
+    # Configure logging to stdout
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s"
+    )
+    
+    logger.info("Sniffer starting in standalone mode...")
+    
+    try:
+        from scapy.all import conf
+        iface_names = ", ".join([str(x.name) for x in conf.ifaces.values() if x.name])
+        logger.info(f"Available interfaces: {iface_names}")
+    except Exception:
+        pass
+        
+    logger.info("Sniffer started. Listening on all interfaces... Publishing flows to Kafka.")
+    
+    live_sniffer.start()
+    
+    # Keep the main loop running
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        loop.run_until_complete(live_sniffer._flush_loop())
+    except KeyboardInterrupt:
+        logger.info("Sniffer stopped by user.")
+        live_sniffer.stop()
