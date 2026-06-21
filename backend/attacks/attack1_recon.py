@@ -103,9 +103,9 @@ def main():
         scan_thread = threading.Thread(target=python_port_scan, args=(target_subnet,), daemon=True)
         scan_thread.start()
 
-    print('[ATTACK 1] Waiting 120 seconds for anomaly detection models to process the telemetry...')
+    print('[ATTACK 1] Waiting 300 seconds for anomaly detection models to process the telemetry...')
     try:
-        time.sleep(120)
+        time.sleep(300)
     except KeyboardInterrupt:
         print('\n[ATTACK 1] Interrupted by user.')
 

@@ -240,10 +240,13 @@ class TrustScoreEngine:
             if (gnn_anomaly == 0.0 or gnn_scorer.model is None) and is_lateral_like:
                 gnn_anomaly = 0.75
 
-            # Do not mark any device as anomalous/red until behavioral injection is done (compromised key exists in Redis)
+            # Check if this device is under active attack (either via exploit listener OR attack script injection)
             is_compromised = False
             try:
-                is_compromised = redis_client.exists(f"compromised:{device_id}") == 1
+                is_compromised = (
+                    redis_client.exists(f"compromised:{device_id}") == 1 or
+                    redis_client.exists(f"attack_state:{device_id}") == 1
+                )
             except Exception:
                 pass
             if not is_compromised:
