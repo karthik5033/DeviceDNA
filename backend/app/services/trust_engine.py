@@ -175,21 +175,6 @@ class TrustScoreEngine:
         self.device_history = {}
         # Track recently evaluated devices for GNN co-evaluation proximity edges
         self._recent_eval_window: list[str] = []
-        # Dynamic active attacks tracking
-        self.active_attacks = {}
-
-    def register_active_attack(self, device_id: str, attack_type: str):
-        self.active_attacks[device_id] = {
-            "type": attack_type,
-            "timestamp": datetime.utcnow()
-        }
-        
-    def check_active_attack(self, device_id: str) -> str:
-        if device_id in self.active_attacks:
-            data = self.active_attacks[device_id]
-            if (datetime.utcnow() - data["timestamp"]).total_seconds() < 15:
-                return data["type"]
-        return None
 
     async def evaluate_device(self, device_id: str, device_class: str, current_features: list[float], baseline_stats: dict) -> dict:
         """
@@ -197,21 +182,45 @@ class TrustScoreEngine:
         Requires the immediate 5-min feature snapshot, and the long-term static means/stds.
         """
         try:
-            attack_type = self.check_active_attack(device_id)
+            # Mathematical features mapping:
+            # bytes_sent = current_features[0], bytes_recv = current_features[1], packet_count = current_features[2]
+            # unique_dst_ips = current_features[5], unique_dst_ports = current_features[6]
+            # ext_int_ratio = current_features[8], protocol_entropy = current_features[13]
+            is_recon_like = False
+            is_beacon_like = False
+            is_lateral_like = False
+            is_exfil_like = False
+
+            if current_features and len(current_features) >= 14:
+                # 1. Stealth Recon scan footprint (low byte-per-packet ratio, high unique ports/IPs)
+                if current_features[6] > 10 or (current_features[2] > 50 and current_features[0] / max(1.0, current_features[2]) < 100):
+                    is_recon_like = True
+                
+                # 2. Beaconing footprint (periodic sequence connection to a single external IP)
+                if current_features[5] == 1 and current_features[8] > 0.8:
+                    is_beacon_like = True
+                    
+                # 3. Lateral movement footprint (cross-class or high volume of internal IP peer queries)
+                if current_features[5] > 2 and current_features[8] < 0.1:
+                    is_lateral_like = True
+
+                # 4. Exfiltration footprint (upload volume significantly exceeds normal levels)
+                if current_features[0] > 150000:
+                    is_exfil_like = True
 
             # 1. GMVAE Hierarchical Digital Twin (0 -> 1.0)
             vae_dev = gmvae_scorer.score_deviation(device_id, device_class, current_features)
-            if (vae_dev == 0.0 or gmvae_scorer.global_model is None) and attack_type:
+            if (vae_dev == 0.0 or gmvae_scorer.global_model is None) and (is_recon_like or is_beacon_like or is_lateral_like or is_exfil_like):
                 vae_dev = 0.85
             
             # 2. Isolation Forest (0 -> 1.0)
             if_anomaly = if_scorer.score_anomaly(device_class, current_features)
-            if (if_anomaly == 0.0 or not if_scorer.models) and attack_type:
+            if (if_anomaly == 0.0 or not if_scorer.models) and (is_recon_like or is_beacon_like or is_exfil_like):
                 if_anomaly = 0.90
             
             # 3. CUSUM Drift Tracking (0 -> 1.0)
             drift_score = cusum_engine.detect_drift(device_id, self._dict_features(current_features), baseline_stats)
-            if (drift_score == 0.0 or drift_score is None) and attack_type and attack_type == "slow_exfil":
+            if (drift_score == 0.0 or drift_score is None) and is_exfil_like:
                 drift_score = 0.85
                 
             # Update sequence history for LSTM
@@ -223,14 +232,12 @@ class TrustScoreEngine:
                 
             # 4. LSTM Sequence Prediction (0 -> 1.0)
             lstm_anomaly = lstm_scorer.score(device_id, self.device_history[device_id])
-            if (lstm_anomaly == 0.0 or lstm_scorer.model is None) and attack_type:
+            if (lstm_anomaly == 0.0 or lstm_scorer.model is None) and is_beacon_like:
                 lstm_anomaly = 0.80
 
             # 5. GNN Graph Anomaly Detection (0 -> 1.0)
-            # Graph edges are now driven strictly by real Kafka telemetry (src_ip -> dst_ip)
-            # inside telemetry.py, instead of co-evaluation proximity here.
             gnn_anomaly = gnn_scorer.score(device_id, current_features)
-            if (gnn_anomaly == 0.0 or gnn_scorer.model is None) and attack_type:
+            if (gnn_anomaly == 0.0 or gnn_scorer.model is None) and is_lateral_like:
                 gnn_anomaly = 0.75
 
             # Combine the structural algorithms into the ensemble pillar
@@ -460,8 +467,7 @@ class TrustScoreEngine:
                         device_id=device_id,
                         trust_score=float(effective_trust_score),
                         gnn_score=float(gnn_anomaly),
-                        shap_evidence=shap_evidence,
-                        previous_trust_score=float(previous_score) if previous_score is not None else None
+                        shap_evidence=shap_evidence
                     )
                 except Exception as resp_err:
                     logger.error(f"Response engine trigger error for {device_id}: {resp_err}")

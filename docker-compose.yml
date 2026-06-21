@@ -19,19 +19,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # PostgreSQL Web UI
-  pgadmin:
-    image: dpage/pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@devicedna.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-
   # Time-Series Database (Telemetry)
   influxdb:
     image: influxdb:2.7
@@ -104,18 +91,6 @@ services:
       retries: 10
       start_period: 30s
 
-  # Kafka Web UI
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: DeviceDNA
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-    depends_on:
-      kafka:
-        condition: service_healthy
-
   seeder:
     image: python:3.11-slim
     working_dir: /app
@@ -139,19 +114,6 @@ services:
         condition: service_healthy
     restart: on-failure
 
-  mosquitto:
-    image: eclipse-mosquitto:2
-    ports:
-      - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
-    healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -W 3 || exit 0"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     image: python:3.11-slim
     working_dir: /app
@@ -162,8 +124,6 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
-      MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
     command: >
       bash -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info"
     ports:
@@ -171,8 +131,6 @@ services:
     depends_on:
       seeder:
         condition: service_completed_successfully
-      mosquitto:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
       interval: 10s
@@ -183,6 +141,8 @@ services:
   simulator:
     image: python:3.11-slim
     working_dir: /app
+    ports:
+      - "8888:8888"
     volumes:
       - ./backend:/app
     environment:
@@ -190,8 +150,6 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
-      MQTT_HOST: mosquitto
-      MQTT_PORT: "1883"
     command: >
       bash -c "pip install -r requirements.txt && python -m simulator.main"
     depends_on:
