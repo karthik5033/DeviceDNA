@@ -18,6 +18,7 @@ from app.api.routes import trust, alerts, policy, response, hardware_health
 from app.db.influxdb import influx_db
 from app.db.postgres import engine, Base
 from app.api.ws import sio
+from app.services.sniffer import live_sniffer
 
 import asyncio
 
@@ -31,12 +32,16 @@ async def lifespan(app: FastAPI):
     # Startup: Run the Kafka flow consumer in the background
     await telemetry_service.start()
     
+    # Startup: Run the Live Packet Sniffer in the background
+    live_sniffer.start()
+    
     # Startup: Run the Hardware Registry stale check loop
     app.state.registry_task = asyncio.create_task(registry_maintenance_loop())
     
     yield
     # Shutdown: Clean up connections
     app.state.registry_task.cancel()
+    live_sniffer.stop()
     await telemetry_service.stop()
     await influx_db.close()
 

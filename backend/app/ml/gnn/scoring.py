@@ -33,6 +33,8 @@ class GNNScorer:
 
         # Runtime communication graph — nodes are device_ids, edges are observed communications
         self.graph = nx.DiGraph()
+        # Track edge timestamps for dynamic edge expiration (5-minute sliding window)
+        self.edge_timestamps = {}
         # Cache latest features per device for building the feature matrix
         self.device_features: dict[str, list[float]] = {}
 
@@ -78,7 +80,22 @@ class GNNScorer:
         Called by the trust engine for each evaluation to build the live topology.
         """
         if src_device_id and dst_device_id and src_device_id != dst_device_id:
+            import time
+            edge = (src_device_id, dst_device_id)
             self.graph.add_edge(src_device_id, dst_device_id)
+            self.edge_timestamps[edge] = time.time()
+
+    def prune_expired_edges(self):
+        """Prune edges older than 5 minutes (300 seconds) from the graph."""
+        import time
+        now = time.time()
+        expired = [edge for edge, ts in self.edge_timestamps.items() if now - ts > 300]
+        for edge in expired:
+            src, dst = edge
+            if self.graph.has_edge(src, dst):
+                self.graph.remove_edge(src, dst)
+            if edge in self.edge_timestamps:
+                del self.edge_timestamps[edge]
 
     def update_features(self, device_id: str, features: list[float]):
         """Cache the latest 14D feature vector for a device."""
@@ -96,6 +113,9 @@ class GNNScorer:
         """
         if self.model is None:
             return 0.0
+
+        # Prune GNN edges older than 5 minutes
+        self.prune_expired_edges()
 
         # Update this device's features in the cache
         self.update_features(device_id, current_features)

@@ -147,17 +147,15 @@ class TelemetryService:
                 # It does an async redis set, so awaiting is fine
                 await mark_seen(device_id, device_class)
                 
-            is_anom = flow.get('is_anomaly') or flow.get('is_anomalous') or False
-            if is_anom:
-                master_trust_engine.register_active_attack(device_id, flow.get('attack_type'))
-
-            if is_anom or "policy_violation" in str(flow).lower():
+            # Policy checks on raw flow (e.g., checking if destination IP matches blocklists)
+            is_policy_violation = "policy_violation" in str(flow).lower()
+            if is_policy_violation:
                 await sio.emit('new_alert', {
                     'id': flow.get('flow_id', 'ALT-LIVE'),
                     'device': flow.get('device_id', 'Unknown'),
                     'severity': 'critical',
-                    'type': flow.get('attack_type', 'Suspicious Activity'),
-                    'message': f"Live Anomaly Trigger: {flow.get('attack_type')} detected hitting {flow.get('dst_ip')}",
+                    'type': 'policy_violation',
+                    'message': f"Live Policy Violation: unauthorized connection attempt to {flow.get('dst_ip')}",
                     'score': 25.0,
                     'time': 'Just now',
                     'model': 'Live Kafka Stream'
@@ -189,7 +187,7 @@ class TelemetryService:
             time_elapsed = (now - last_eval) >= MIN_EVAL_INTERVAL_SECS
             flow_threshold = (self.flow_count % 10 == 0)
 
-            if not flow_threshold and not time_elapsed and not is_anom:
+            if not flow_threshold and not time_elapsed and not is_policy_violation:
                 return
 
             self._last_eval_time[device_id] = now

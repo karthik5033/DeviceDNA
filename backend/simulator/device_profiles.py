@@ -3,6 +3,7 @@ Device profiles for the DeviceDNA telemetry simulator.
 Defines normal behavior for 6 classes of IoT devices.
 """
 import random
+random.seed(42)
 from typing import Dict, Any, List
 
 # Network Constants
