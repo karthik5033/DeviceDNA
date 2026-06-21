@@ -5,6 +5,8 @@ import redis
 import argparse
 import subprocess
 import socket
+import threading
+import ipaddress
 
 def get_local_subnet():
     """Detects the machine's local IP and assumes a /24 subnet."""
@@ -35,17 +37,22 @@ def main():
 
     r = redis.Redis(host=args.redis_host, port=args.redis_port, db=0)
 
-    # Target the new physical hardware sensors for the attack
-    cameras = ['dht11_sensor', 'mq135_sensor', 'ir_sensor']
+    # Target both physical hardware sensors AND specific virtual devices
+    targets = [
+        # Physical Devices
+        'dht11_sensor', 'mq135_sensor', 'ir_sensor',
+        # Virtual Devices
+        'SIM-0005', 'SIM-0015', 'SIM-0030'
+    ]
     attack_payload = json.dumps({
         "type": "recon",
         "intensity": 0.3
     })
 
     print('[ATTACK 1] Stealth reconnaissance starting...')
-    print(f'[ATTACK 1] Injecting recon behavior into cameras: {", ".join(cameras)}')
+    print(f'[ATTACK 1] Injecting recon behavior into targets: {", ".join(targets)}')
     
-    for cam_id in cameras:
+    for cam_id in targets:
         r.set(f"attack_state:{cam_id}", attack_payload)
 
     print(f'[ATTACK 1] Auto-detected attacker subnet: {target_subnet}')
@@ -61,8 +68,30 @@ def main():
             text=True
         )
     except FileNotFoundError:
-        print("[!] Warning: 'nmap' is not installed or not in PATH. Skipping the physical scan.")
-        print("[!] The backend simulator injection will still run for 120 seconds.")
+        print("[!] Warning: 'nmap' is not installed or not in PATH.")
+        print(f"[ATTACK 1] Falling back to pure-Python TCP scan for {target_subnet}...")
+        
+        def python_port_scan(subnet):
+            network = ipaddress.ip_network(subnet, strict=False)
+            ports = [21, 22, 23, 80, 443, 554, 1883, 5000, 8080]
+            def scan_ip(ip):
+                for port in ports:
+                    try:
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.settimeout(0.2)
+                        s.connect((str(ip), port))
+                        s.close()
+                    except Exception:
+                        pass
+                    time.sleep(0.05)
+            for ip in network.hosts():
+                t = threading.Thread(target=scan_ip, args=(ip,), daemon=True)
+                t.start()
+                time.sleep(0.02)
+                
+        # Launch fallback scanner in background thread
+        scan_thread = threading.Thread(target=python_port_scan, args=(target_subnet,), daemon=True)
+        scan_thread.start()
 
     print('[ATTACK 1] Waiting 120 seconds for anomaly detection models to process the telemetry...')
     try:
@@ -71,7 +100,7 @@ def main():
         print('\n[ATTACK 1] Interrupted by user.')
 
     print('[ATTACK 1] Cleaning up injected behavior...')
-    for cam_id in cameras:
+    for cam_id in targets:
         r.delete(f"attack_state:{cam_id}")
 
     if nmap_process:
