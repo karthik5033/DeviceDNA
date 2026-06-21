@@ -193,19 +193,19 @@ class TrustScoreEngine:
 
             if current_features and len(current_features) >= 14:
                 # 1. Stealth Recon scan footprint (low byte-per-packet ratio, high unique ports/IPs)
-                if current_features[12] > 10 or (current_features[2] > 50 and current_features[1] / max(1.0, current_features[2]) < 100):
+                if current_features[6] > 10 or (current_features[2] > 50 and current_features[0] / max(1.0, current_features[2]) < 100):
                     is_recon_like = True
                 
                 # 2. Beaconing footprint (periodic sequence connection to a single external IP)
-                if current_features[11] == 1 and current_features[13] > 0.8:
+                if current_features[5] == 1 and current_features[8] > 0.8:
                     is_beacon_like = True
                     
                 # 3. Lateral movement footprint (cross-class or high volume of internal IP peer queries)
-                if current_features[11] > 2 and current_features[13] < 0.1:
+                if current_features[5] > 2 and current_features[8] < 0.1:
                     is_lateral_like = True
 
                 # 4. Exfiltration footprint (upload volume significantly exceeds normal levels)
-                if current_features[1] > 150000:
+                if current_features[0] > 150000:
                     is_exfil_like = True
 
             # 1. GMVAE Hierarchical Digital Twin (0 -> 1.0)
@@ -240,101 +240,76 @@ class TrustScoreEngine:
             if (gnn_anomaly == 0.0 or gnn_scorer.model is None) and is_lateral_like:
                 gnn_anomaly = 0.75
 
-            # Do not mark any device as anomalous/red until behavioral injection is done (compromised key exists in Redis)
-            is_compromised = False
-            try:
-                is_compromised = redis_client.exists(f"compromised:{device_id}") == 1
-            except Exception:
-                pass
-            if not is_compromised:
-                is_recon_like = False
-                is_beacon_like = False
-                is_lateral_like = False
-                is_exfil_like = False
-                vae_dev = 0.0
-                if_anomaly = 0.0
-                drift_score = 0.0
-                lstm_anomaly = 0.0
-                gnn_anomaly = 0.0
-
             # Combine the structural algorithms into the ensemble pillar
             ensemble_score = (if_anomaly * 0.6) + (lstm_anomaly * 0.2) + (gnn_anomaly * 0.2)
 
-            if not is_compromised:
-                policy_penalty = 0.0
-                peer_penalty = 0.0
-                penalty_percentage = 0.0
-                final_trust_score = 100.0
-                decay_multiplier = 1.0
-                effective_trust_score = 100.0
-            else:
-                # Policy Conformance Pillar
-                policy_score = await evaluate_policy_score(device_class, current_features)
-                policy_penalty = 1.0 - policy_score
-                
-                # Peer Comparison Pillar
-                # 1. Compute preliminary trust score without the peer comparison weight
-                preliminary_penalty = (
-                    (vae_dev * self.weights['digital_twin']) +
-                    (ensemble_score * self.weights['anomaly_ensemble']) +
-                    (drift_score * self.weights['drift_intelligence']) +
-                    (policy_penalty * self.weights['policy_conformance'])
-                )
-                preliminary_trust_score = max(0.0, min(100.0, 100.0 - (preliminary_penalty / 0.95 * 100.0)))
-                
-                # 2. Retrieve scores of all other devices of the same class from Redis
-                peer_ids = DEVICES_BY_CLASS.get(device_class, [])
-                peer_scores = []
-                for pid in peer_ids:
-                    if pid == device_id:
-                        continue
-                    raw_data = redis_client.get(f"trust:{pid}")
-                    if raw_data:
-                        try:
-                            score_data = json.loads(raw_data)
-                            peer_scores.append(score_data["score"])
-                        except Exception:
-                            pass
-                            
-                # 3. Compute peer comparison score
-                if len(peer_scores) >= 2:
-                    class_mean = sum(peer_scores) / len(peer_scores)
-                    peer_score = 1.0 - abs(preliminary_trust_score - class_mean) / 100.0
-                    peer_score = max(0.0, min(1.0, peer_score))
-                else:
-                    peer_score = 0.5  # Neutral to avoid penalizing isolated devices
-                    
-                peer_penalty = 1.0 - peer_score
-
-                # Calculate raw penalty percentage based on combining the engine 
-                # higher values = more anomaly = higher penalty
-                penalty_percentage = (
-                    (vae_dev * self.weights['digital_twin']) +
-                    (ensemble_score * self.weights['anomaly_ensemble']) +
-                    (drift_score * self.weights['drift_intelligence']) +
-                    (policy_penalty * self.weights['policy_conformance']) +
-                    (peer_penalty * self.weights['peer_comparison'])
-                )
-
-                # Scale penalty from 0.0-1.0 into absolute trust 100-0 drop
-                final_trust_score = max(0.0, min(100.0, 100.0 - (penalty_percentage * 100)))
-                
-                # Smooth out real-time jitter using Exponential Moving Average (EMA)
-                raw_prev = redis_client.get(f"trust:{device_id}")
-                if raw_prev:
+            # Policy Conformance Pillar
+            policy_score = await evaluate_policy_score(device_class, current_features)
+            policy_penalty = 1.0 - policy_score
+            
+            # Peer Comparison Pillar
+            # 1. Compute preliminary trust score without the peer comparison weight
+            preliminary_penalty = (
+                (vae_dev * self.weights['digital_twin']) +
+                (ensemble_score * self.weights['anomaly_ensemble']) +
+                (drift_score * self.weights['drift_intelligence']) +
+                (policy_penalty * self.weights['policy_conformance'])
+            )
+            preliminary_trust_score = max(0.0, min(100.0, 100.0 - (preliminary_penalty / 0.95 * 100.0)))
+            
+            # 2. Retrieve scores of all other devices of the same class from Redis
+            peer_ids = DEVICES_BY_CLASS.get(device_class, [])
+            peer_scores = []
+            for pid in peer_ids:
+                if pid == device_id:
+                    continue
+                raw_data = redis_client.get(f"trust:{pid}")
+                if raw_data:
                     try:
-                        prev_data = json.loads(raw_prev)
-                        prev_score = float(prev_data["score"])
-                        # Asymmetric smoothing: drop fast (alpha=0.6), recover slow (alpha=0.1)
-                        # This ensures anomalies trigger alerts immediately, but recovery is stable
-                        alpha = 0.6 if final_trust_score < prev_score else 0.1
-                        final_trust_score = (final_trust_score * alpha) + (prev_score * (1.0 - alpha))
+                        score_data = json.loads(raw_data)
+                        peer_scores.append(score_data["score"])
                     except Exception:
                         pass
+                        
+            # 3. Compute peer comparison score
+            if len(peer_scores) >= 2:
+                class_mean = sum(peer_scores) / len(peer_scores)
+                peer_score = 1.0 - abs(preliminary_trust_score - class_mean) / 100.0
+                peer_score = max(0.0, min(1.0, peer_score))
+            else:
+                peer_score = 0.5  # Neutral to avoid penalizing isolated devices
                 
-                # Calculate decay and effective trust score
-                decay_multiplier = get_decay_multiplier(device_id)
-                effective_trust_score = final_trust_score * decay_multiplier
+            peer_penalty = 1.0 - peer_score
+
+            # Calculate raw penalty percentage based on combining the engine 
+            # higher values = more anomaly = higher penalty
+            penalty_percentage = (
+                (vae_dev * self.weights['digital_twin']) +
+                (ensemble_score * self.weights['anomaly_ensemble']) +
+                (drift_score * self.weights['drift_intelligence']) +
+                (policy_penalty * self.weights['policy_conformance']) +
+                (peer_penalty * self.weights['peer_comparison'])
+            )
+
+            # Scale penalty from 0.0-1.0 into absolute trust 100-0 drop
+            final_trust_score = max(0.0, min(100.0, 100.0 - (penalty_percentage * 100)))
+            
+            # Smooth out real-time jitter using Exponential Moving Average (EMA)
+            raw_prev = redis_client.get(f"trust:{device_id}")
+            if raw_prev:
+                try:
+                    prev_data = json.loads(raw_prev)
+                    prev_score = float(prev_data["score"])
+                    # Asymmetric smoothing: drop fast (alpha=0.6), recover slow (alpha=0.1)
+                    # This ensures anomalies trigger alerts immediately, but recovery is stable
+                    alpha = 0.6 if final_trust_score < prev_score else 0.1
+                    final_trust_score = (final_trust_score * alpha) + (prev_score * (1.0 - alpha))
+                except Exception:
+                    pass
+            
+            # Calculate decay and effective trust score
+            decay_multiplier = get_decay_multiplier(device_id)
+            effective_trust_score = final_trust_score * decay_multiplier
 
             log_msg = f"Trust Computed - Device: {device_id} | VAE: {vae_dev:.4f} | IF: {if_anomaly:.4f} | LSTM: {lstm_anomaly:.4f} | GNN: {gnn_anomaly:.4f} | Penalty: {penalty_percentage:.4f} | Raw: {final_trust_score:.2f} | Decayed: {effective_trust_score:.2f}"
             logger.info(log_msg)
