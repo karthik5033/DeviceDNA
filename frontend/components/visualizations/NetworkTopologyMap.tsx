@@ -25,7 +25,8 @@ export default function NetworkTopologyMap({
     if (data.nodes.length === 0 && liveScores && Object.keys(liveScores).length > 0) {
       const nodes = [];
       const links = [];
-      const deviceIds = Object.keys(liveScores);
+      // ONLY include managed devices (SIM-* or named sensors), drop raw IP addresses to keep the graph restricted to 50
+      const deviceIds = Object.keys(liveScores).filter(id => !String(id).includes('.'));
       
       deviceIds.forEach(id => {
         const score = liveScores[id];
@@ -73,7 +74,8 @@ export default function NetworkTopologyMap({
       const sat = d.trust_score < 50 ? 85 : 75;
       const lit = d.trust_score < 30 ? 45 : d.trust_score < 70 ? 50 : 45;
       const isExternal = d.id && String(d.id).includes('.');
-      let color = d.isIsolated ? '#475569' : isExternal ? '#0ea5e9' : `hsl(${hue}, ${sat}%, ${lit}%)`;
+      // Force SOLID RED fill when anomalous to make the attack extremely obvious
+      let color = d.isIsolated ? '#475569' : isExternal ? '#0ea5e9' : isAnom ? '#ef4444' : `hsl(${hue}, ${sat}%, ${lit}%)`;
       
       d3.select(this)
         .attr('fill', color)
@@ -114,6 +116,8 @@ export default function NetworkTopologyMap({
     const colorScale = (score: number, isIsolated: boolean, id: string) => {
       if (isIsolated) return '#475569';
       if (id && String(id).includes('.')) return '#0ea5e9';
+      // Force SOLID RED fill for low scores
+      if (score < 60) return '#ef4444';
       // Map score 0-100 to hue 0-120 (red to green)
       const hue = Math.round((score / 100) * 120);
       const saturation = score < 50 ? 85 : 75;
