@@ -4,13 +4,34 @@ import json
 import redis
 import argparse
 import subprocess
+import socket
+
+def get_local_subnet():
+    """Detects the machine's local IP and assumes a /24 subnet."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Doesn't have to be reachable
+        s.connect(('10.255.255.255', 1))
+        local_ip = s.getsockname()[0]
+    except Exception:
+        local_ip = '127.0.0.1'
+    finally:
+        s.close()
+    
+    if local_ip == '127.0.0.1':
+        return "192.168.43.0/24" # Fallback
+        
+    parts = local_ip.split('.')
+    return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
 
 def main():
     parser = argparse.ArgumentParser(description="Attack 1 - Stealth Reconnaissance (nmap + injection)")
-    parser.add_argument("subnet", nargs="?", default="192.168.43.0/24", help="Target subnet for nmap scan (e.g. 192.168.43.0/24)")
+    parser.add_argument("--subnet", help="Target subnet for nmap scan. Auto-detected if not provided.")
     parser.add_argument("--redis-host", default="localhost", help="Redis host")
     parser.add_argument("--redis-port", type=int, default=6379, help="Redis port")
     args = parser.parse_args()
+
+    target_subnet = args.subnet if args.subnet else get_local_subnet()
 
     r = redis.Redis(host=args.redis_host, port=args.redis_port, db=0)
 
@@ -27,13 +48,14 @@ def main():
     for cam_id in cameras:
         r.set(f"attack_state:{cam_id}", attack_payload)
 
-    print(f'[ATTACK 1] Launching nmap scan against {args.subnet}...')
-    print(f'         Command: nmap -sS -T2 -p 1-1024 {args.subnet}')
+    print(f'[ATTACK 1] Auto-detected attacker subnet: {target_subnet}')
+    print(f'[ATTACK 1] Launching nmap scan against {target_subnet}...')
+    print(f'         Command: nmap -sS -T2 -p 1-1024 {target_subnet}')
     
     nmap_process = None
     try:
         nmap_process = subprocess.Popen(
-            ["nmap", "-sS", "-T2", "-p", "1-1024", args.subnet],
+            ["nmap", "-sS", "-T2", "-p", "1-1024", target_subnet],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
