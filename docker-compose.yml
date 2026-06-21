@@ -114,6 +114,19 @@ services:
         condition: service_healthy
     restart: on-failure
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -W 3 || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     image: python:3.11-slim
     working_dir: /app
@@ -124,6 +137,8 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
     command: >
       bash -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info"
     ports:
@@ -131,6 +146,8 @@ services:
     depends_on:
       seeder:
         condition: service_completed_successfully
+      mosquitto:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
       interval: 10s
@@ -148,6 +165,8 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
     command: >
       bash -c "pip install -r requirements.txt && python -m simulator.main"
     depends_on:

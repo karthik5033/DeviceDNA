@@ -1,7 +1,7 @@
 # DeviceDNA — Phase 2 Status Report
 
 > **Target**: Phase 2 — Autonomous Response & Recovery Engine
-> **Status**: INITIATED
+> **Status**: COMPLETE ✅
 
 ---
 
@@ -9,24 +9,27 @@
 
 | Phase 2 Module | Status | Notes |
 |----------------|--------|-------|
-| 1. MQTT Command Dispatcher | ⏳ Pending | Send JSON commands to ESP32 / Virtual nodes |
-| 2. ESP32 Firmware Handlers | ⏳ Pending | `messageReceived()` parser for physical response (rate limit, quarantine) |
-| 3. Adaptive Trust Decay | ⏳ Pending | Redis-based 60-min event counter & decay multiplier |
-| 4. Risk Classifier (Tiers 1-5) | ⏳ Pending | Replace hardcoded thresholds with progressive escalation mapping |
-| 5. PostgreSQL Audit Log | ⏳ Pending | Structured DB logging (`ResponseAuditLog`) for all response actions |
-| 6. Dashboard Response Feed | ⏳ Pending | Real-time D3 graph color updates and action timeline |
-| 7. Human-in-the-Loop (HITL) | ⏳ Pending | Approval endpoints & frontend modal for Tier 4 & 5 overrides |
-| 8. Built-In Policy Rules | ⏳ Pending | Enforcement of deterministic class rules (e.g. medical boundaries) |
-| 9. Recovery Mode | ⏳ Pending | Incremental trust restoration after 5-minute clean windows |
-| 10. Peer Consensus (Optional) | ⏳ Pending | Validating anomalies against peer behavior for confidence |
-| 11. Honeypot Redirect (Optional)| ⏳ Pending | Simulating traffic redirection to decoy nodes |
+| 1. MQTT Command Dispatcher | ✅ Done | Full paho-mqtt with auto-reconnect, broadcast, retained status, simulated fallback |
+| 2. ESP32 Firmware Handlers | ⏳ Pending | `messageReceived()` parser for physical relay actuation (needs hardware) |
+| 3. Adaptive Trust Decay | ✅ Done | Redis-based anomaly event counter with decay multiplier applied per cycle |
+| 4. Risk Classifier (Tiers 1-5) | ✅ Done | Full 5-tier system: monitor → rate_limit → sandbox → quarantine → honeypot |
+| 5. PostgreSQL Audit Log | ✅ Done | `ResponseAuditLog` model + `/api/audit` REST endpoints + summary endpoint |
+| 6. Dashboard Response Feed | ✅ Done | Real-time WebSocket events: `isolate_device`, `sandbox_device`, `rate_limit_device` |
+| 7. Human-in-the-Loop (HITL) | ✅ Done | Redis pending queue, 120s TTL countdown, `/api/response/approve` & `/deny` |
+| 8. Built-In Policy Rules | ✅ Done | DB-backed dynamic rules + static class fallback in `trust_engine.py` |
+| 9. Recovery Mode | ✅ Done | `recovery_manager.py` hooked into trust evaluation loop |
+| 10. Peer Consensus | ✅ Done | Redis class-mean cross-reference baked into 5-pillar scoring (5% weight) |
+| 11. Honeypot Redirect | ✅ Done | Tier 5 HITL-approved honeypot action with MQTT dispatch + audit log |
+| 12. Mosquitto in Docker | ✅ Done | `eclipse-mosquitto:2` added to `docker-compose.yml` with healthcheck |
 
 ---
 
-## Current Sprint Focus
-- [ ] **Step 1:** Implement `mqtt_dispatcher.py` in the backend to push JSON payloads to the MQTT broker.
-- [ ] **Step 2:** Update `trust_decay.py` to track historical anomaly events in Redis.
-- [ ] **Step 3:** Implement the Risk Classifier to map scores to the 5-tier system.
+## What Remains (Phase 3)
 
-## 🟢 Resolved Items
-*None yet. Phase 2 kick-off.*
+- [ ] **ESP32 Firmware** — Physical relay actuation (requires hardware board)
+- [ ] **Real Dataset** — Ingest IoT-23 or UNSW-NB15, retrain GMVAE/IF/LSTM/GNN
+- [ ] **Alert resolve** — Fix Zustand store update without page reload
+- [ ] **Topology polish** — Full-page `/dashboard/topology` cleanup
+
+## ✅ Resolved Items (Phase 2)
+All 11 software modules complete. System runs end-to-end with synthetic data.

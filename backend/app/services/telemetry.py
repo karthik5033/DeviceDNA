@@ -23,7 +23,8 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
 RAW_TOPIC = "raw-flows"
 
 # Minimum seconds between trust evaluations per device (time-based fallback)
-MIN_EVAL_INTERVAL_SECS = 60
+# Set to 15s for responsive demo feedback (increase to 60s for production)
+MIN_EVAL_INTERVAL_SECS = 15
 
 # How many historical scores to use for baseline computation (sliding window)
 BASELINE_HISTORY_KEY = "baseline:{device_id}"

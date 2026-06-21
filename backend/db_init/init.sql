@@ -1,12 +1,21 @@
+-- DeviceDNA PostgreSQL Schema — Clean Version
+-- Supports: alerts, response_audit_logs, policy_rules, devices, platform_settings
 
--- DEVICES (Retained for schema completeness, updated device_id/id to VARCHAR for compatibility)
+-- PLATFORM SETTINGS
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key VARCHAR(100) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- DEVICES
 CREATE TABLE IF NOT EXISTS devices (
     id VARCHAR(100) PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     mac_address VARCHAR(17) UNIQUE NOT NULL,
     ip_address INET NOT NULL,
     device_class VARCHAR(30) NOT NULL CHECK (
-        device_class IN ('camera', 'sensor', 'thermostat', 
+        device_class IN ('camera', 'sensor', 'thermostat',
                           'access_control', 'medical', 'industrial')
     ),
     vlan INTEGER NOT NULL,
@@ -29,48 +38,20 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS alerts (
     id VARCHAR(100) PRIMARY KEY,
     device_id VARCHAR(100) NOT NULL,
-    severity VARCHAR(20) NOT NULL,
-    alert_type VARCHAR(50) NOT NULL,
+    severity VARCHAR(50) NOT NULL,
+    alert_type VARCHAR(100) NOT NULL,
     message TEXT NOT NULL,
-    trust_score FLOAT NOT NULL,
-    vae_score FLOAT NOT NULL,
-    if_score FLOAT NOT NULL,
-    lstm_score FLOAT NOT NULL,
-    gnn_score FLOAT NOT NULL,
+    trust_score FLOAT8 NOT NULL,
+    vae_score FLOAT8 NOT NULL DEFAULT 0.0,
+    if_score FLOAT8 NOT NULL DEFAULT 0.0,
+    lstm_score FLOAT8 NOT NULL DEFAULT 0.0,
+    gnn_score FLOAT8 NOT NULL DEFAULT 0.0,
     tib JSONB,
-    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
     is_resolved BOOLEAN DEFAULT FALSE
 );
 
 -- RESPONSE AUDIT LOGS
-CREATE TABLE IF NOT EXISTS response_audit_logs (
-    id VARCHAR(100) PRIMARY KEY,
-    device_id VARCHAR(100) NOT NULL,
-    trigger_score FLOAT NOT NULL,
-    response_tier INTEGER NOT NULL,
-    action VARCHAR(50) NOT NULL,
-    hitl_decision VARCHAR(50) NOT NULL,
-    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-
--- ALERTS Table
-CREATE TABLE IF NOT EXISTS alerts (
-    id VARCHAR(100) PRIMARY KEY,
-    device_id VARCHAR(100) NOT NULL,
-    severity VARCHAR(50) NOT NULL,
-    alert_type VARCHAR(100) NOT NULL,
-    message VARCHAR(255) NOT NULL,
-    trust_score FLOAT8 NOT NULL,
-    vae_score FLOAT8 NOT NULL,
-    if_score FLOAT8 NOT NULL,
-    lstm_score FLOAT8 NOT NULL,
-    gnn_score FLOAT8 NOT NULL,
-    tib JSONB,
-    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
-    is_resolved BOOLEAN DEFAULT FALSE
-
-);
-
--- RESPONSE AUDIT LOGS Table
 CREATE TABLE IF NOT EXISTS response_audit_logs (
     id VARCHAR(100) PRIMARY KEY,
     device_id VARCHAR(100) NOT NULL,
@@ -83,14 +64,7 @@ CREATE TABLE IF NOT EXISTS response_audit_logs (
     timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
-
-INSERT INTO platform_settings (key, value) VALUES
-    ('response_mode', '"advisory"'),
-    ('trust_thresholds', '{"critical": 20, "suspicious": 40, "guarded": 60, "normal": 80}')
-ON CONFLICT (key) DO NOTHING;
-
-
--- POLICY RULES Table
+-- POLICY RULES
 CREATE TABLE IF NOT EXISTS policy_rules (
     id VARCHAR(100) PRIMARY KEY,
     device_class VARCHAR(100) NOT NULL DEFAULT 'any',
@@ -104,10 +78,16 @@ CREATE TABLE IF NOT EXISTS policy_rules (
     timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
--- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_alerts_device_id ON alerts(device_id);
-CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_device_id ON response_audit_logs(device_id);
-CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON response_audit_logs(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_policy_rules_active ON policy_rules(is_active, device_class);
+-- INDEXES
+CREATE INDEX IF NOT EXISTS idx_alerts_device_id   ON alerts(device_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_timestamp    ON alerts(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_severity     ON alerts(severity);
+CREATE INDEX IF NOT EXISTS idx_audit_device_id     ON response_audit_logs(device_id);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp     ON response_audit_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_policy_active_class ON policy_rules(is_active, device_class);
 
+-- DEFAULT PLATFORM SETTINGS
+INSERT INTO platform_settings (key, value) VALUES
+    ('response_mode', '"advisory"'),
+    ('trust_thresholds', '{"critical": 20, "suspicious": 40, "guarded": 60, "normal": 80}')
+ON CONFLICT (key) DO NOTHING;

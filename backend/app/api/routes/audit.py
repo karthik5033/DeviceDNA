@@ -84,3 +84,57 @@ def _serialize(log: ResponseAuditLog) -> dict:
         "shap_evidence": log.shap_evidence,
         "timestamp": log.timestamp.isoformat() + "Z",
     }
+
+
+@router.get("/summary")
+async def get_audit_summary(db: AsyncSession = Depends(get_db)):
+    """
+    Returns a high-level summary of all response actions taken.
+    Includes: total count, breakdown by action, breakdown by tier, breakdown by HITL decision.
+    """
+    from sqlalchemy import func, case
+
+    total_res = await db.execute(select(func.count()).select_from(ResponseAuditLog))
+    total = total_res.scalar()
+
+    # By action
+    action_res = await db.execute(
+        select(ResponseAuditLog.action, func.count().label("count"))
+        .group_by(ResponseAuditLog.action)
+        .order_by(func.count().desc())
+    )
+    by_action = {row.action: row.count for row in action_res.all()}
+
+    # By tier
+    tier_res = await db.execute(
+        select(ResponseAuditLog.response_tier, func.count().label("count"))
+        .group_by(ResponseAuditLog.response_tier)
+        .order_by(ResponseAuditLog.response_tier)
+    )
+    by_tier = {f"tier_{row.response_tier}": row.count for row in tier_res.all()}
+
+    # By HITL decision
+    hitl_res = await db.execute(
+        select(ResponseAuditLog.hitl_decision, func.count().label("count"))
+        .group_by(ResponseAuditLog.hitl_decision)
+        .order_by(func.count().desc())
+    )
+    by_decision = {row.hitl_decision: row.count for row in hitl_res.all()}
+
+    # Most actioned device
+    top_device_res = await db.execute(
+        select(ResponseAuditLog.device_id, func.count().label("count"))
+        .group_by(ResponseAuditLog.device_id)
+        .order_by(func.count().desc())
+        .limit(5)
+    )
+    top_devices = [{"device_id": row.device_id, "count": row.count} for row in top_device_res.all()]
+
+    return {
+        "total_actions": total,
+        "by_action": by_action,
+        "by_tier": by_tier,
+        "by_hitl_decision": by_decision,
+        "top_actioned_devices": top_devices,
+    }
+
