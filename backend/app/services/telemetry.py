@@ -26,7 +26,7 @@ def get_device_id_by_ip(ip: str) -> str:
     try:
         # Check Redis for dynamically learned physical device IPs
         for d in FLEET:
-            if d.get('is_physical') or d['id'] in ["gateway_01", "sensor_01", "motion_01", "cam_01", "cam_02"]:
+            if d.get('is_physical') or d['id'] in ["dht11_sensor", "mq135_sensor", "ir_sensor", "ldr_sensor", "esp8266_wifi"]:
                 dev_id = d['id']
                 stored_ip = redis_client.get(f"physical_ip:{dev_id}")
                 if stored_ip:

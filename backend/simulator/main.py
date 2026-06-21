@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from aiokafka import AIOKafkaProducer
-from simulator.traffic_generator import generate_batch, ACTIVE_RESTRICTIONS
+from simulator.traffic_generator import generate_batch, ACTIVE_RESTRICTIONS, ATTACK_STATE
 from simulator.device_profiles import FLEET
 from simulator.attack_scenarios import AttackScenarios
 from app.db.redis import redis_client
@@ -225,7 +225,7 @@ async def stream_telemetry():
         while True:
             cycle_count += 1
             
-            # Sync active restrictions from Redis
+            # Sync active restrictions and attack states from Redis
             try:
                 for d in FLEET:
                     d_id = d['id']
@@ -235,8 +235,15 @@ async def stream_telemetry():
                         "sandboxed": redis_client.exists(f"response:sandboxed:{d_id}") == 1,
                         "honeypot": redis_client.exists(f"response:honeypot:{d_id}") == 1,
                     }
+                    
+                    attack_data = redis_client.get(f"attack_state:{d_id}")
+                    if attack_data:
+                        ATTACK_STATE[d_id] = json.loads(attack_data)
+                    else:
+                        if d_id in ATTACK_STATE:
+                            del ATTACK_STATE[d_id]
             except Exception as redis_err:
-                logger.error(f"Failed to sync restrictions from Redis: {redis_err}")
+                logger.error(f"Failed to sync state from Redis: {redis_err}")
             
             # Generate 100 normal flows
             flows = generate_batch(100)

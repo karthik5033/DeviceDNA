@@ -120,7 +120,7 @@ class LivePacketSniffer:
             try:
                 payload = bytes(packet[TCP].payload)
                 for dev in FLEET:
-                    if dev.get('is_physical') or dev['id'] in ["gateway_01", "sensor_01", "motion_01", "cam_01", "cam_02"]:
+                    if dev.get('is_physical') or dev['id'] in ["dht11_sensor", "mq135_sensor", "ir_sensor", "ldr_sensor", "esp8266_wifi"]:
                         dev_id = dev['id']
                         if dev_id.encode('utf-8') in payload:
                             client_ip = src_ip if dst_port == 1883 else dst_ip

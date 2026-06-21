@@ -21,11 +21,11 @@ PHYSICAL_DEVICES = {
     "HW-003": "access_control",
     "HW-004": "industrial",
     "HW-005": "sensor",
-    "gateway_01": "access_control",
-    "sensor_01": "sensor",
-    "motion_01": "access_control",
-    "cam_01": "camera",
-    "cam_02": "camera"
+    "dht11_sensor": "sensor",
+    "mq135_sensor": "sensor",
+    "ir_sensor": "access_control",
+    "ldr_sensor": "sensor",
+    "esp8266_wifi": "sensor"
 }
 
 async def mark_seen(device_id: str, device_class: str = None):
