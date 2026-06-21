@@ -20,7 +20,12 @@ PHYSICAL_DEVICES = {
     "HW-002": "sensor",
     "HW-003": "access_control",
     "HW-004": "industrial",
-    "HW-005": "sensor"
+    "HW-005": "sensor",
+    "gateway_01": "access_control",
+    "sensor_01": "sensor",
+    "motion_01": "access_control",
+    "cam_01": "camera",
+    "cam_02": "camera"
 }
 
 async def mark_seen(device_id: str, device_class: str = None):

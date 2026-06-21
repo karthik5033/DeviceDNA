@@ -16,6 +16,28 @@ from simulator.device_profiles import FLEET
 
 IP_TO_DEVICE_ID = {d['ip_address']: d['id'] for d in FLEET}
 
+def get_device_id_by_ip(ip: str) -> str:
+    if not ip:
+        return None
+    static_id = IP_TO_DEVICE_ID.get(ip)
+    if static_id:
+        return static_id
+        
+    try:
+        # Check Redis for dynamically learned physical device IPs
+        for d in FLEET:
+            if d.get('is_physical') or d['id'] in ["gateway_01", "sensor_01", "motion_01", "cam_01", "cam_02"]:
+                dev_id = d['id']
+                stored_ip = redis_client.get(f"physical_ip:{dev_id}")
+                if stored_ip:
+                    if isinstance(stored_ip, bytes):
+                        stored_ip = stored_ip.decode('utf-8')
+                    if stored_ip == ip:
+                        return dev_id
+    except Exception:
+        pass
+    return None
+
 logger = logging.getLogger(__name__)
 
 import os
@@ -173,8 +195,8 @@ class TelemetryService:
                 })
                 
                 # Build real GNN edges based on observed communication
-                src_id = flow.get('device_id') or IP_TO_DEVICE_ID.get(src_ip)
-                dst_id = IP_TO_DEVICE_ID.get(dst_ip)
+                src_id = flow.get('device_id') or get_device_id_by_ip(src_ip)
+                dst_id = get_device_id_by_ip(dst_ip)
                 if src_id and dst_id:
                     gnn_scorer.update_graph(src_id, dst_id)
 
