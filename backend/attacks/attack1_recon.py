@@ -7,6 +7,7 @@ import subprocess
 import socket
 import threading
 import ipaddress
+import os
 
 def get_local_subnet():
     """Detects the machine's local IP and assumes a /24 subnet."""
@@ -56,13 +57,22 @@ def main():
         r.set(f"attack_state:{cam_id}", attack_payload)
 
     print(f'[ATTACK 1] Auto-detected attacker subnet: {target_subnet}')
+    
+    # Bypass PATH issues by checking default Windows installation locations
+    nmap_executable = "nmap"
+    if os.name == 'nt':
+        for path in [r"C:\Program Files (x86)\Nmap\nmap.exe", r"C:\Program Files\Nmap\nmap.exe"]:
+            if os.path.exists(path):
+                nmap_executable = path
+                break
+
     print(f'[ATTACK 1] Launching nmap scan against {target_subnet}...')
-    print(f'         Command: nmap -sS -T2 -p 1-1024 {target_subnet}')
+    print(f'         Command: {nmap_executable} -sS -T2 -p 1-1024 {target_subnet}')
     
     nmap_process = None
     try:
         nmap_process = subprocess.Popen(
-            ["nmap", "-sS", "-T2", "-p", "1-1024", target_subnet],
+            [nmap_executable, "-sS", "-T2", "-p", "1-1024", target_subnet],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
