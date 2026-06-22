@@ -12,6 +12,7 @@ import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import HITLPanel from '@/components/HITLPanel';
 import HardwareNodesPanel from '@/components/HardwareNodesPanel';
 import SandboxInterceptCard from '@/components/visualizations/SandboxInterceptCard';
+import AttackSimulatorPanel from '@/components/AttackSimulatorPanel';
 
 // Pre-compute stable particle data to avoid SSR/client hydration mismatch
 type ParticleData = {
@@ -251,6 +252,9 @@ export default function DashboardOverview() {
 
         {/* Hardware Nodes Tracker */}
         <HardwareNodesPanel />
+
+        {/* Attack Simulator Panel */}
+        <AttackSimulatorPanel />
 
         {/* Main Resizable Area */}
         <div className="flex-1 min-h-[550px] relative">

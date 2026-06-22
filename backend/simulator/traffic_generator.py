@@ -35,10 +35,10 @@ def generate_flow(device):
 
     # Check for active attacks (e.g., Recon injection)
     attack = ATTACK_STATE.get(device_id, {})
-    is_recon = attack.get("type") == "recon"
+    attack_type = attack.get("type", "")
     intensity = attack.get("intensity", 0.3)
 
-    if is_recon:
+    if attack_type == "recon":
         # Override protocol to TCP, random ports, random internal destinations
         protocol = "TCP"
         dst_port = random.randint(1, 1024) # port entropy
@@ -48,6 +48,38 @@ def generate_flow(device):
         packets = 1
         duration_ms = 10
         flags = "TCP_SYN"
+    elif attack_type == "beacon":
+        # C2 Beaconing: tiny heartbeat packets to rotating C2 servers on port 4444
+        c2_servers = attack.get("c2_servers", ["203.0.113.4", "198.51.100.22", "192.0.2.77"])
+        protocol = "TCP"
+        dst_port = attack.get("c2_port", 4444)
+        dst_ip = random.choice(c2_servers)
+        is_external = True
+        avg_bytes = attack.get("beacon_payload_bytes", 128)
+        packets = 2
+        duration_ms = 1500
+        flags = "TCP_SYN"
+    elif attack_type == "exfil":
+        # Slow data exfiltration: gradually increasing upload volume to external IP
+        protocol = "HTTPS"
+        dst_port = 443
+        dst_ip = random.choice(device.get('external_peers', ["45.33.32.156"]) + ["45.33.32.156"])
+        is_external = True
+        avg_bytes = random.randint(5000, 15000)  # Much larger than normal sensor traffic
+        packets = random.randint(10, 30)
+        duration_ms = 5000
+        flags = "TCP_ACK"
+    elif attack_type == "ddos":
+        # Volumetric DDoS Flood: Massive UDP burst to target victim IP
+        target_ip = attack.get("ddos_target_ip", "198.51.100.99")
+        protocol = "UDP"
+        dst_port = random.randint(1024, 65535) # High entropy port spray
+        dst_ip = target_ip
+        is_external = True
+        avg_bytes = random.randint(45000, 65000) # Massive payload volume
+        packets = random.randint(1000, 5000)     # Unprecedented packet count
+        duration_ms = random.randint(50, 100)    # Jammed into a tiny time window
+        flags = "NONE"
     else:
         # Select protocol based on probability distribution
         protocols = list(profile['protocols'].keys())
@@ -101,7 +133,7 @@ def generate_flow(device):
         "packets": packets,
         "duration_ms": duration_ms,
         "flags": flags,
-        "is_anomalous": is_recon
+        "is_anomalous": attack_type in ("recon", "beacon", "exfil", "ddos")
     }
 
 def generate_batch(size=100):

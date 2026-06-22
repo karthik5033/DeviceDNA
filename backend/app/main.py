@@ -14,7 +14,7 @@ logging.basicConfig(
 
 from app.services.telemetry import TelemetryService
 from app.services.hardware_registry import registry_maintenance_loop
-from app.api.routes import trust, alerts, policy, response, hardware_health
+from app.api.routes import trust, alerts, policy, response, hardware_health, audit, attacks
 from app.db.influxdb import influx_db
 from app.db.postgres import engine, Base
 from app.api.ws import sio
@@ -58,6 +58,8 @@ fastapi_app.include_router(alerts.router, prefix="/api")
 fastapi_app.include_router(policy.router, prefix="/api")
 fastapi_app.include_router(response.router)
 fastapi_app.include_router(hardware_health.router, prefix="/api/hardware", tags=["hardware"])
+fastapi_app.include_router(audit.router)
+fastapi_app.include_router(attacks.router)
 
 # Configure CORS
 fastapi_app.add_middleware(
