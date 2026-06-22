@@ -90,7 +90,8 @@ class GMVAEHierarchicalScorer:
         # 1. Normalize features using the device's specific min/max bounds
         norm = self.norm_params.get(device_id)
         if not norm:
-            return 0.0
+            logger.warning(f"No normalization parameters found for {device_id}. Using [0, 1] fallback.")
+            norm = {'min': [0.0]*14, 'max': [1.0]*14}
             
         f_mins = norm.get('min', norm.get('mins', norm.get('feature_mins', [0]*14)))
         f_maxs = norm.get('max', norm.get('maxs', norm.get('feature_maxs', [1]*14)))

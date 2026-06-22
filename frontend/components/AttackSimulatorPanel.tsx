@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, Square, AlertTriangle, Shield, Clock, Radio } from 'lucide-react';
+import { Zap, Square, AlertTriangle, Shield, Clock, Activity } from 'lucide-react';
 
 interface AttackSpec {
   id: number;
@@ -184,11 +184,15 @@ export default function AttackSimulatorPanel() {
         </AnimatePresence>
 
         {/* Attack buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {attacks.map((atk) => {
             const isThis = status?.is_running && status.attack_id === atk.id;
             const isOther = status?.is_running && status.attack_id !== atk.id;
-            const color = atk.id === 1 ? '#eab308' : '#ef4444';
+            let color = '#ef4444'; // Default red
+            if (atk.id === 1) color = '#eab308'; // Yellow
+            if (atk.id === 2) color = '#ef4444'; // Red
+            if (atk.id === 3) color = '#a855f7'; // Purple
+            if (atk.id === 4) color = '#3b82f6'; // Blue
 
             return (
               <motion.button
@@ -207,7 +211,7 @@ export default function AttackSimulatorPanel() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Radio className="w-4 h-4" style={{ color }} />
+                    <Activity className="w-4 h-4" style={{ color }} />
                     <span className="font-mono font-bold text-xs" style={{ color }}>
                       ATTACK {atk.id}
                     </span>

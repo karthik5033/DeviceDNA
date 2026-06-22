@@ -23,9 +23,9 @@ INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "telemetry")
 
 # Seeder configuration
 TOTAL_DEVICES = len(FLEET)
-HEALTHY_COUNT = 40
-SUSPICIOUS_COUNT = 7
-CRITICAL_COUNT = 3
+HEALTHY_COUNT = 50
+SUSPICIOUS_COUNT = 0
+CRITICAL_COUNT = 0
 
 async def seed_data():
     print("Starting DeviceDNA Demo Data Seeder...")
@@ -34,17 +34,10 @@ async def seed_data():
     fleet_copy = list(FLEET)
     random.shuffle(fleet_copy)
     
-    # Select critical devices: 1 camera, 1 medical, 1 industrial
+    # All devices are healthy initially
     critical_devices = []
-    for cls in ['camera', 'medical', 'industrial']:
-        for d in fleet_copy:
-            if d['device_class'] == cls and d not in critical_devices:
-                critical_devices.append(d)
-                fleet_copy.remove(d)
-                break
-                
-    suspicious_devices = fleet_copy[:SUSPICIOUS_COUNT]
-    healthy_devices = fleet_copy[SUSPICIOUS_COUNT:]
+    suspicious_devices = []
+    healthy_devices = fleet_copy[:]
     
     now = datetime.now(timezone.utc)
     points_to_write = []
@@ -144,46 +137,10 @@ async def seed_data():
     await client.close()
     
     print("Generating alerts...")
-    alert_configs = [
-        ('critical', critical_devices[0] if len(critical_devices) > 0 else fleet_copy[0]),
-        ('critical', critical_devices[1] if len(critical_devices) > 1 else fleet_copy[1]),
-        ('high', suspicious_devices[0] if len(suspicious_devices) > 0 else fleet_copy[2]),
-        ('high', suspicious_devices[1] if len(suspicious_devices) > 1 else fleet_copy[3]),
-        ('high', suspicious_devices[2] if len(suspicious_devices) > 2 else fleet_copy[4]),
-        ('medium', suspicious_devices[3] if len(suspicious_devices) > 3 else fleet_copy[5]),
-        ('medium', suspicious_devices[4] if len(suspicious_devices) > 4 else fleet_copy[6]),
-        ('medium', suspicious_devices[5] if len(suspicious_devices) > 5 else fleet_copy[7])
-    ]
+    alert_configs = [] # Empty by default to keep all devices green
     
     async with AsyncSessionLocal() as session:
-        for idx, (sev, dev) in enumerate(alert_configs):
-            is_res = True if idx < 3 else False  
-            msg = f"Device {dev['id']} trust score dropped to {sev} risk."
-            if sev == 'critical':
-                sc = random.uniform(14, 39)
-            elif sev == 'high':
-                sc = random.uniform(40, 59)
-            else:
-                sc = random.uniform(60, 75)
-                
-            a_time = now - timedelta(hours=random.uniform(0.5, 6))
-            
-            al = Alert(
-                id=str(uuid.uuid4()),
-                device_id=dev['id'],
-                severity=sev,
-                alert_type="trust_score_drop",
-                message=msg,
-                trust_score=sc,
-                vae_score=random.uniform(0.5, 0.9),
-                if_score=random.uniform(0.5, 0.9),
-                lstm_score=random.uniform(0.5, 0.9),
-                gnn_score=random.uniform(0.5, 0.9),
-                tib=None,
-                timestamp=a_time.replace(tzinfo=None),
-                is_resolved=is_res
-            )
-            session.add(al)
+        # No alerts to insert initially
         await session.commit()
         
     # We must properly close the postgres engine so the script can exit

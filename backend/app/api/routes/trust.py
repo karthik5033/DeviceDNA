@@ -217,3 +217,61 @@ async def get_gmvae_comparison_signals(device_id: str):
         "overall_penalty": round(drift, 4),
         "trust_score": round(data.get("score", 100.0), 2),
     }
+
+from sqlalchemy import delete
+from app.db.postgres import AsyncSessionLocal
+from app.db.models import Alert, ResponseAuditLog
+
+@router.post("/reset")
+async def reset_system():
+    """
+    Completely reset the DeviceDNA environment:
+    - Clears Redis (trust scores, restrictions, attack states)
+    - Wipes PostgreSQL (alerts, audit logs)
+    - Dispatches MQTT 'recover' command to all physical/virtual devices
+    - Stops all active attacks
+    """
+    # 1. Clear Redis keys
+    patterns = [
+        "response:rate_limit:*",
+        "response:sandboxed:*",
+        "response:isolated:*",
+        "response:honeypot:*",
+        "response:pending:*",
+        "response:override:*",
+        "response:last_anomaly_time:*",
+        "response:anomalies:*",
+        "alert:dedup:*",
+        "trust:*",
+        "attack_state:*"
+    ]
+    
+    for pattern in patterns:
+        cursor = "0"
+        while True:
+            cursor, keys = redis_client.scan(cursor=cursor, match=pattern, count=100)
+            if keys:
+                redis_client.delete(*keys)
+            if cursor == 0 or cursor == "0":
+                break
+                
+    # 2. Clear Postgres
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Alert))
+        await db.execute(delete(ResponseAuditLog))
+        await db.commit()
+        
+    # 3. Stop running attacks gracefully
+    from app.api.routes.attacks import stop_attack
+    await stop_attack()
+        
+    # 4. Dispatch recover to fleet
+    from app.services.mqtt_dispatcher import mqtt_dispatcher
+    for d in FLEET:
+        d_id = d['id']
+        try:
+            mqtt_dispatcher.dispatch_command(d_id, "recover", relay_open=False)
+        except Exception:
+            pass
+
+    return {"status": "success", "message": "Fleet reset. Trust scores cleared, database wiped, and recovery dispatched."}

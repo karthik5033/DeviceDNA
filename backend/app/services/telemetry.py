@@ -119,8 +119,10 @@ class TelemetryService:
         self.influx_client = influx_client
         self.consumer = None
         self.flow_count = 0
-        # Issue 3: track last trust evaluation timestamp per device
+        # track last trust evaluation timestamp per device
         self._last_eval_time: dict[str, float] = {}
+        # Buffer flows per device for aggregated ML evaluation
+        self._flow_buffer: dict[str, list] = {}
 
     async def start(self):
         # Graceful handling if Kafka is not yet up in Docker
@@ -128,7 +130,7 @@ class TelemetryService:
             self.consumer = AIOKafkaConsumer(
                 RAW_TOPIC,
                 bootstrap_servers=KAFKA_BROKER,
-                group_id="backend_telemetry_2",
+                group_id="backend_telemetry_3",
                 auto_offset_reset="latest",
                 value_deserializer=lambda m: json.loads(m.decode('utf-8'))
             )
@@ -162,6 +164,10 @@ class TelemetryService:
         try:
             device_id = flow.get('device_id')
             device_class = flow.get('device_class')
+            
+            # Persist raw flow to InfluxDB
+            if device_id:
+                await self.influx_client.write_flow(flow)
             
             # Register device as online
             if device_id:
@@ -202,27 +208,40 @@ class TelemetryService:
 
             self.flow_count += 1
             device_id = flow.get('device_id', 'unknown')
+            
+            if device_id not in self._flow_buffer:
+                self._flow_buffer[device_id] = []
+            self._flow_buffer[device_id].append(flow)
 
-            # Issue 3: evaluate on every 10th flow OR if ≥60s have passed since last eval
             now = time.time()
             last_eval = self._last_eval_time.get(device_id, 0.0)
             time_elapsed = (now - last_eval) >= MIN_EVAL_INTERVAL_SECS
-            flow_threshold = (self.flow_count % 10 == 0)
+            
+            # Evaluate when we have accumulated a batch of exactly 25 flows per device to match model norms
+            flow_threshold = len(self._flow_buffer[device_id]) >= 25
 
             if not flow_threshold and not time_elapsed and not is_policy_violation:
                 return
 
             self._last_eval_time[device_id] = now
+            
+            # Extract features on the aggregated buffer
+            flows_to_eval = self._flow_buffer[device_id]
+            self._flow_buffer[device_id] = []
 
             features = extract_features(
                 device_id,
                 flow.get('device_class', 'unknown'),
-                [flow]
+                flows_to_eval
             )
 
             # Issue 1: store snapshot and compute real baseline stats for CUSUM
             _store_feature_snapshot(device_id, features)
             baseline_stats = _compute_baseline_stats(device_id)
+            
+            # Persist aggregated 14D feature vector to InfluxDB
+            feature_dict = features.__dict__ if hasattr(features, '__dict__') else features
+            await self.influx_client.write_feature_vector(device_id, flow.get('device_class', 'unknown'), feature_dict)
 
             trust_score = await master_trust_engine.evaluate_device(
                 device_id,

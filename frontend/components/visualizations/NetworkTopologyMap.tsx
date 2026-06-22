@@ -37,7 +37,7 @@ export default function NetworkTopologyMap({
         nodes.push({
           id,
           trust_score: score,
-          isAnomalous: score < 60,
+          isAnomalous: score < 40,
           isIsolated: false,
           isSandboxed: false
         });
@@ -71,7 +71,7 @@ export default function NetworkTopologyMap({
       if (!d) return;
       if (liveScores[d.id] !== undefined) {
         d.trust_score = liveScores[d.id];
-        d.isAnomalous = d.trust_score < 60;
+        d.isAnomalous = d.trust_score < 40;
       }
       const isAnom = d.isAnomalous && !d.isIsolated && !d.isSandboxed;
       // Continuous HSL gradient
@@ -125,7 +125,7 @@ export default function NetworkTopologyMap({
       if (isSandboxed) return 'rgba(234, 179, 8, 0.2)';
       if (id && String(id).includes('.')) return '#0ea5e9';
       // Force SOLID RED fill for low scores
-      if (score < 60) return '#ef4444';
+      if (score < 40) return '#ef4444';
 
       // Map score 0-100 to hue 0-120 (red to green)
       const hue = Math.round((score / 100) * 120);

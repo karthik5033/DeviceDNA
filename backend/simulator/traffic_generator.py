@@ -59,6 +59,16 @@ def generate_flow(device):
         packets = 2
         duration_ms = 1500
         flags = "TCP_SYN"
+    elif attack_type == "lateral":
+        # Lateral movement: high volume of internal IP queries, scanning other devices
+        protocol = "TCP"
+        dst_port = random.choice([22, 445, 3389]) # SSH, SMB, RDP
+        dst_ip = random.choice(device['internal_peers'])
+        is_external = False
+        avg_bytes = random.randint(200, 1000)
+        packets = random.randint(2, 5)
+        duration_ms = 100
+        flags = "TCP_SYN"
     elif attack_type == "exfil":
         # Slow data exfiltration: gradually increasing upload volume to external IP
         protocol = "HTTPS"
@@ -133,7 +143,7 @@ def generate_flow(device):
         "packets": packets,
         "duration_ms": duration_ms,
         "flags": flags,
-        "is_anomalous": attack_type in ("recon", "beacon", "exfil", "ddos")
+        "is_anomalous": attack_type in ("recon", "beacon", "lateral", "exfil", "ddos")
     }
 
 def generate_batch(size=100):

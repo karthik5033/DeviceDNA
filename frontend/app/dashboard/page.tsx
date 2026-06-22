@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, ShieldAlert, Wifi, Server, CheckCircle2, X } from 'lucide-react';
+import { Activity, ShieldAlert, Wifi, Server, CheckCircle2, X, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import NetworkTopologyMap from '@/components/visualizations/NetworkTopologyMap';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
-import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import HITLPanel from '@/components/HITLPanel';
 import HardwareNodesPanel from '@/components/HardwareNodesPanel';
 import SandboxInterceptCard from '@/components/visualizations/SandboxInterceptCard';
@@ -217,7 +217,21 @@ export default function DashboardOverview() {
       <div className="relative z-10 flex flex-col h-full w-full max-w-[1600px] gap-6">
         
         {/* Dynamic Dashboard Header */}
-        <div className="w-full h-10 mb-[-10px] flex justify-end">
+        <div className="w-full h-10 mb-[-10px] flex justify-between items-center">
+           <div>
+               <button 
+                  onClick={async () => {
+                     if (!confirm('Are you sure you want to completely reset the fleet and clear all alerts?')) return;
+                     await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/trust/reset`, { method: 'POST' });
+                     window.location.reload();
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-xs font-mono font-bold tracking-widest transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)]"
+               >
+                  <RefreshCw className="w-3 h-3" />
+                  FACTORY RESET
+               </button>
+           </div>
+           <div className="flex justify-end">
            <AnimatePresence>
               {isolatedNode && (
                  <motion.div 
@@ -232,6 +246,7 @@ export default function DashboardOverview() {
                  </motion.div>
               )}
            </AnimatePresence>
+           </div>
         </div>
 
         {/* Header & KPIs */}

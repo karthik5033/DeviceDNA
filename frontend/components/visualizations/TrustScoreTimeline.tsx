@@ -35,7 +35,7 @@ export default function TrustScoreTimeline() {
                 const timeStr = new Date(currentSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 
                 setData(prev => {
-                    const newData = [...prev, { time: timeStr, score: globalAvg, threshold: 60 }];
+                    const newData = [...prev, { time: timeStr, score: globalAvg, threshold: 40 }];
                     if (newData.length > 60) return newData.slice(newData.length - 60);
                     return newData;
                 });
@@ -52,7 +52,7 @@ export default function TrustScoreTimeline() {
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const score = payload[0].value;
-      const isCritical = score < 60;
+      const isCritical = score < 40;
       
       return (
         <div className="bg-black/80 backdrop-blur-md border border-white/10 p-3 rounded-lg shadow-2xl z-50 text-white">
@@ -97,7 +97,7 @@ export default function TrustScoreTimeline() {
           />
           <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1, strokeDasharray: '4 4' }} />
           
-          <ReferenceLine y={60} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={2} label={{ position: 'insideTopLeft', value: 'THRESHOLD VIOLATION', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
+          <ReferenceLine y={40} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={2} label={{ position: 'insideTopLeft', value: 'THRESHOLD VIOLATION', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
           
           <Line 
             type="monotone" 

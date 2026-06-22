@@ -44,6 +44,20 @@ ATTACK_TARGETS = {
         },
         "duration_default": 300,
     },
+    3: {
+        "name": "Lateral Movement / Worm Spread",
+        "description": "Simulates internal lateral movement by aggressively scanning internal peers on SSH/SMB/RDP ports.",
+        "targets": ["SIM-0010", "SIM-0011", "SIM-0016"],
+        "payload": {"type": "lateral", "intensity": 0.8},
+        "duration_default": 300,
+    },
+    4: {
+        "name": "Massive Data Exfiltration",
+        "description": "Simulates ransomware or spyware exfiltrating huge volumes of outbound data over HTTPS.",
+        "targets": ["SIM-0040", "SIM-0041", "SIM-0045"],
+        "payload": {"type": "exfil", "intensity": 1.0},
+        "duration_default": 300,
+    },
 }
 
 # Track running attack threads so we can cancel them
