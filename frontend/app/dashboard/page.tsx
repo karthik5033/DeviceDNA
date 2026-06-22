@@ -7,10 +7,11 @@ import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import HITLPanel from '@/components/HITLPanel';
 import HardwareNodesPanel from '@/components/HardwareNodesPanel';
+import SandboxInterceptCard from '@/components/visualizations/SandboxInterceptCard';
 
 // Pre-compute stable particle data to avoid SSR/client hydration mismatch
 type ParticleData = {
@@ -60,6 +61,7 @@ const ParticleField = ({ success }: { success: boolean }) => {
 
 export default function DashboardOverview() {
   const [isolatedNode, setIsolatedNode] = useState<string | null>(null);
+  const [sandboxedNode, setSandboxedNode] = useState<string | null>(null);
 
   const [activeDevices, setActiveDevices] = useState(0);
   const [criticalAlerts, setCriticalAlerts] = useState(0);
@@ -67,6 +69,7 @@ export default function DashboardOverview() {
   const [threatsMitigated, setThreatsMitigated] = useState(0);
   const [trustScores, setTrustScores] = useState<Record<string, number>>({});
   const [latestAlert, setLatestAlert] = useState<{device: string, type: string, time: string} | null>(null);
+  const [socketEvents, setSocketEvents] = useState<{timestamp: string, event: string, data: any}[]>([]);
 
   // Sparkline state
   const [selectedNode, setSelectedNode] = useState<{ id: string; score: number } | null>(null);
@@ -78,7 +81,8 @@ export default function DashboardOverview() {
     setSelectedNode({ id: nodeId, score: nodeScore });
     selectedNodeRef.current = nodeId;
     setSparkLoading(true);
-    fetch(`http://localhost:8000/api/trust/${nodeId}/history?hours=6`)
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    fetch(`${apiUrl}/api/trust/${nodeId}/history?hours=6`)
       .then(res => res.json())
       .then((data: any[]) => {
         setSparkData(data.map((p: any) => ({ trust_score: p.trust_score ?? 0 })));
@@ -99,8 +103,10 @@ export default function DashboardOverview() {
   };
 
   useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    
     // Fetch initial devices from Redis to populate the dashboard before WebSocket messages arrive
-    fetch('http://localhost:8000/api/trust/devices')
+    fetch(`${apiUrl}/api/trust/devices`)
       .then(res => res.json())
       .then(data => {
         setTrustScores(data);
@@ -113,7 +119,18 @@ export default function DashboardOverview() {
       })
       .catch(err => console.error("Failed to fetch initial devices", err));
 
-    const socket = io('http://localhost:8000', {
+    // Fetch initial mitigated threats count
+    fetch(`${apiUrl}/api/alerts/count/resolved`)
+      .then(res => res.json())
+      .then(data => {
+          if (data && typeof data.count === 'number') {
+              setThreatsMitigated(data.count);
+          }
+      })
+      .catch(err => console.error("Failed to fetch mitigated threats count", err));
+
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:8000';
+    const socket = io(wsUrl, {
        transports: ['polling', 'websocket'],
     });
 
@@ -152,19 +169,25 @@ export default function DashboardOverview() {
         });
     });
 
+    socket.on('isolate_device', (data) => {
+        setIsolatedNode(data.device_id);
+    });
+
+    socket.on('honeypot_device', (data) => {
+        setIsolatedNode(data.device_id);
+    });
+
+    socket.on('sandbox_device', (data) => {
+        setSandboxedNode(data.device_id);
+    });
+
     socket.onAny((event, data) => {
        console.log('SOCKET EVENT:', event, data);
        if (event === 'trust_update' || event === 'telemetry_ping' || event === 'new_alert') {
-           const div = document.createElement('div');
-           div.style.cssText = 'position:relative;z-index:9999;background:black;color:#3edcff;font-family:monospace;padding:2px;font-size:10px;border-bottom:1px solid #333;';
-           div.innerText = `[${new Date().toISOString()}] ${event} => ${JSON.stringify(data).substring(0, 50)}...`;
-           const container = document.getElementById('ws-logs-container');
-           if (container) {
-               container.prepend(div);
-               if (container.children.length > 10) {
-                   container.lastChild?.remove();
-               }
-           }
+           setSocketEvents(prev => {
+               const newEvent = { timestamp: new Date().toISOString(), event, data };
+               return [newEvent, ...prev].slice(0, 50);
+           });
        }
     });
 
@@ -186,7 +209,7 @@ export default function DashboardOverview() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#040814] text-white p-6 md:p-8 font-sans overflow-hidden flex flex-col items-center">
+    <div className="relative min-h-screen bg-[#040814] text-white p-6 md:p-8 font-sans flex flex-col items-center">
       <ParticleField success={!!isolatedNode} />
       
       {/* Content wrapper with z-index */}
@@ -203,7 +226,7 @@ export default function DashboardOverview() {
                  >
                     <CheckCircle2 className="w-5 h-5 text-green-500" />
                     <span className="text-green-400 font-mono font-bold tracking-widest text-sm drop-shadow-[0_0_5px_rgba(34,197,94,0.5)]">
-                       THREAT NEUTRALIZED — RESPONSE TIME: 4.2s
+                       THREAT NEUTRALIZED (RESPONSE TIME: N/A)
                     </span>
                  </motion.div>
               )}
@@ -226,9 +249,12 @@ export default function DashboardOverview() {
           ))}
         </div>
 
+        {/* Hardware Nodes Tracker */}
+        <HardwareNodesPanel />
+
         {/* Main Resizable Area */}
         <div className="flex-1 min-h-[550px] relative">
-          <PanelGroup autoSaveId="dashboard-panels" orientation="horizontal" className="w-full h-full">
+          <PanelGroup autoSaveId="dashboard-panels" direction="horizontal" className="w-full h-full">
             {/* Left Side: Topology Map + Sparkline */}
             <Panel defaultSize={75} minSize={50}>
               <div className="h-full flex flex-col gap-6 pr-3">
@@ -242,7 +268,7 @@ export default function DashboardOverview() {
                     </div>
                   </div>
                   <div className="flex-1 w-full relative bg-gradient-to-br from-transparent to-black/30 min-h-[300px]">
-                    <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} />
+                    <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} externalIsolatedNode={isolatedNode} externalSandboxedNode={sandboxedNode} />
                   </div>
                 </div>
 
@@ -254,11 +280,11 @@ export default function DashboardOverview() {
                       animate={{ opacity: 1, y: 0, height: 'auto' }}
                       exit={{ opacity: 0, y: -10, height: 0 }}
                       transition={{ duration: 0.3, ease: 'easeOut' }}
-                      className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5"
+                      className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5 flex flex-col md:flex-row"
                     >
-                      <div className="p-4 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="flex flex-col">
+                      <div className="p-4 flex flex-1 items-center justify-between">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="flex flex-col min-w-[120px]">
                             <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Selected Device</span>
                             <span className="text-lg font-mono font-bold text-white tracking-tight">{selectedNode.id}</span>
                           </div>
@@ -275,7 +301,7 @@ export default function DashboardOverview() {
                               <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                                   <defs>
-                                    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <linearGradient id={`sparkGrad-${selectedNode.id}`} x1="0" y1="0" x2="0" y2="1">
                                       <stop offset="0%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.4} />
                                       <stop offset="100%" stopColor={getSparkColor(selectedNode.score)} stopOpacity={0.02} />
                                     </linearGradient>
@@ -285,7 +311,7 @@ export default function DashboardOverview() {
                                     dataKey="trust_score"
                                     stroke={getSparkColor(selectedNode.score)}
                                     strokeWidth={1.5}
-                                    fill="url(#sparkGrad)"
+                                    fill={`url(#sparkGrad-${selectedNode.id})`}
                                     isAnimationActive={false}
                                   />
                                 </AreaChart>
@@ -296,13 +322,26 @@ export default function DashboardOverview() {
                           </div>
                           <span className="text-[10px] font-mono text-gray-500 ml-2">6h history</span>
                         </div>
-                        <button
-                          onClick={handleCloseSparkline}
-                          className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                        {selectedNode.id !== sandboxedNode && (
+                          <button
+                            onClick={handleCloseSparkline}
+                            className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10 ml-4 self-start"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
+                      {selectedNode.id === sandboxedNode && (
+                         <div className="w-full md:w-[450px] min-h-[200px] border-t md:border-t-0 md:border-l border-white/10 relative">
+                           <SandboxInterceptCard deviceId={selectedNode.id} />
+                           <button
+                             onClick={handleCloseSparkline}
+                             className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10 bg-black/40"
+                           >
+                             <X className="w-4 h-4" />
+                           </button>
+                         </div>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -331,7 +370,15 @@ export default function DashboardOverview() {
                      <h2 className="font-semibold text-xs text-gray-400 tracking-widest uppercase">Event Logs</h2>
                    </div>
                    <div id="ws-logs-container" className="flex-1 p-4 font-mono text-xs space-y-2 overflow-y-auto">
-                      <div className="text-gray-500">Listening to socket.io...</div>
+                      {socketEvents.length > 0 ? (
+                        socketEvents.map((ev, idx) => (
+                          <div key={idx} style={{ position: 'relative', zIndex: 9999, background: 'black', color: '#3edcff', fontFamily: 'monospace', padding: '2px', fontSize: '10px', borderBottom: '1px solid #333' }}>
+                            [{ev.timestamp}] {ev.event} ={'>'} {JSON.stringify(ev.data).substring(0, 50)}...
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-gray-500">Listening to socket.io...</div>
+                      )}
                    </div>
                  </div>
               </div>
@@ -358,7 +405,6 @@ export default function DashboardOverview() {
             </motion.div>
         )}
 
-        <HardwareNodesPanel />
         <HITLPanel />
 
       </div>

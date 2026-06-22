@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import json
 import logging
@@ -7,10 +6,6 @@ import asyncio
 import threading
 import uuid
 from datetime import datetime
-
-# Add backend directory to sys.path to enable imports when run directly
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-
 from scapy.all import sniff, IP, TCP, UDP, ICMP
 from simulator.device_profiles import FLEET
 
@@ -65,33 +60,16 @@ class LivePacketSniffer:
             pass
         return None
 
-    def _get_device_by_ip_from_redis(self, ip):
-        try:
-            from app.db.redis import redis_client
-            for key in redis_client.scan_iter("physical_ip:*"):
-                stored_ip = redis_client.get(key)
-                if stored_ip:
-                    if isinstance(stored_ip, bytes):
-                        stored_ip = stored_ip.decode('utf-8')
-                    if stored_ip == ip:
-                        k_str = key.decode('utf-8') if isinstance(key, bytes) else key
-                        dev_id = k_str.split(":")[1]
-                        dev = next((d for d in FLEET if d['id'] == dev_id), None)
-                        if dev:
-                            IP_TO_DEVICE[ip] = dev
-                            return dev
-        except Exception:
-            pass
-        return None
-
     def _packet_callback(self, packet):
-        print(packet.summary())   # TEMP DEBUG
         if not IP in packet:
             return
 
         ip_layer = packet[IP]
         src_ip = ip_layer.src
         dst_ip = ip_layer.dst
+
+        src_dev = IP_TO_DEVICE.get(src_ip)
+        dst_dev = IP_TO_DEVICE.get(dst_ip)
 
         # Determine protocol details
         proto = "OTHER"
@@ -139,6 +117,7 @@ class LivePacketSniffer:
         src_dev = IP_TO_DEVICE.get(src_ip) or self._get_device_by_ip_from_redis(src_ip)
         dst_dev = IP_TO_DEVICE.get(dst_ip) or self._get_device_by_ip_from_redis(dst_ip)
 
+
         # Resolve compromised source device dynamically
         if not src_dev:
             if dst_port == 4444:
@@ -154,16 +133,9 @@ class LivePacketSniffer:
                 if device_id:
                     src_dev = next((d for d in FLEET if d['id'] == device_id), None)
 
-        if not src_dev:
-            src_dev = {
-                "id": src_ip,
-                "device_class": "external"
-            }
-        if not dst_dev:
-            dst_dev = {
-                "id": dst_ip,
-                "device_class": "external"
-            }
+        if not src_dev and not dst_dev:
+            # Not involving our fleet
+            return
 
         pkt_len = len(packet)
 
@@ -281,33 +253,3 @@ class LivePacketSniffer:
 
 # Singleton instance
 live_sniffer = LivePacketSniffer()
-
-if __name__ == "__main__":
-    # Configure logging to stdout
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s"
-    )
-    
-    logger.info("Sniffer starting in standalone mode...")
-    
-    try:
-        from scapy.all import conf
-        iface_names = ", ".join([str(x.name) for x in conf.ifaces.values() if x.name])
-        logger.info(f"Available interfaces: {iface_names}")
-    except Exception:
-        pass
-        
-    logger.info("Sniffer started. Listening on all interfaces... Publishing flows to Kafka.")
-    
-    live_sniffer.start()
-    
-    # Keep the main loop running
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    try:
-        loop.run_until_complete(live_sniffer._flush_loop())
-    except KeyboardInterrupt:
-        logger.info("Sniffer stopped by user.")
-        live_sniffer.stop()

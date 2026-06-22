@@ -27,8 +27,7 @@ def reset_all_devices():
         "response:last_anomaly_time:*",
         "response:anomalies:*",
         "alert:dedup:*",
-        "trust:*",
-        "compromised:*"
+        "trust:*"
     ]
     
     deleted_count = 0

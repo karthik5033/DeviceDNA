@@ -6,11 +6,15 @@ import * as d3 from 'd3';
 export default function NetworkTopologyMap({ 
   onIsolate, 
   onNodeClick, 
-  liveScores 
+  liveScores,
+  externalIsolatedNode,
+  externalSandboxedNode
 }: { 
   onIsolate?: (id: string) => void; 
   onNodeClick?: (id: string, score: number) => void;
   liveScores?: Record<string, number>;
+  externalIsolatedNode?: string | null;
+  externalSandboxedNode?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -34,7 +38,8 @@ export default function NetworkTopologyMap({
           id,
           trust_score: score,
           isAnomalous: score < 60,
-          isIsolated: false
+          isIsolated: false,
+          isSandboxed: false
         });
       });
 
@@ -68,14 +73,15 @@ export default function NetworkTopologyMap({
         d.trust_score = liveScores[d.id];
         d.isAnomalous = d.trust_score < 60;
       }
-      const isAnom = d.isAnomalous && !d.isIsolated;
+      const isAnom = d.isAnomalous && !d.isIsolated && !d.isSandboxed;
       // Continuous HSL gradient
       const hue = Math.round((d.trust_score / 100) * 120);
       const sat = d.trust_score < 50 ? 85 : 75;
       const lit = d.trust_score < 30 ? 45 : d.trust_score < 70 ? 50 : 45;
       const isExternal = d.id && String(d.id).includes('.');
       // Force SOLID RED fill when anomalous to make the attack extremely obvious
-      let color = d.isIsolated ? '#475569' : isExternal ? '#0ea5e9' : isAnom ? '#ef4444' : `hsl(${hue}, ${sat}%, ${lit}%)`;
+      let color = d.isIsolated ? '#475569' : d.isSandboxed ? 'rgba(234, 179, 8, 0.2)' : isExternal ? '#0ea5e9' : isAnom ? '#ef4444' : `hsl(${hue}, ${sat}%, ${lit}%)`;
+
       
       d3.select(this)
         .attr('fill', color)
@@ -87,14 +93,15 @@ export default function NetworkTopologyMap({
     // Update label styles
     svg.selectAll('text').each(function(d: any) {
       if (!d) return;
-      // Don't modify the contained badges
-      if (d3.select(this).text() === 'CONTAINED') return;
-      const isAnom = d.isAnomalous && !d.isIsolated;
+      // Don't modify the contained/sandboxed badges
+      if (d3.select(this).text() === 'CONTAINED' || d3.select(this).text() === 'SANDBOXED') return;
+      const isAnom = d.isAnomalous && !d.isIsolated && !d.isSandboxed;
       const isExternal = d.id && String(d.id).includes('.');
       d3.select(this)
         .attr('font-size', isAnom ? '13px' : '9px')
         .attr('font-weight', isAnom ? 'bold' : 'normal')
-        .attr('fill', d.isIsolated ? '#475569' : isExternal ? '#3edcff' : isAnom ? '#ef4444' : 'rgba(255,255,255,0.5)')
+        .attr('fill', d.isIsolated ? '#475569' : d.isSandboxed ? '#eab308' : isExternal ? '#3edcff' : isAnom ? '#ef4444' : 'rgba(255,255,255,0.5)')
+
         .style("filter", isAnom ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
     });
   }, [liveScores]);
@@ -113,11 +120,13 @@ export default function NetworkTopologyMap({
     svg.on('click', () => setActionNode(null));
 
     // Continuous HSL gradient: red(0) → orange(30) → yellow(50) → green(120)
-    const colorScale = (score: number, isIsolated: boolean, id: string) => {
+    const colorScale = (score: number, isIsolated: boolean, isSandboxed: boolean, id?: string) => {
       if (isIsolated) return '#475569';
+      if (isSandboxed) return 'rgba(234, 179, 8, 0.2)';
       if (id && String(id).includes('.')) return '#0ea5e9';
       // Force SOLID RED fill for low scores
       if (score < 60) return '#ef4444';
+
       // Map score 0-100 to hue 0-120 (red to green)
       const hue = Math.round((score / 100) * 120);
       const saturation = score < 50 ? 85 : 75;
@@ -197,24 +206,26 @@ export default function NetworkTopologyMap({
       .attr('r', (d: any) => {
          const isExternal = d.id && String(d.id).includes('.');
          if (isExternal) return 4;
-         return d.isAnomalous && !d.isIsolated ? 12 : 6;
+         return d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 12 : d.isSandboxed ? 8 : 6;
       })
-      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated, d.id))
-      .attr('stroke', (d: any) => d.isAnomalous && !d.isIsolated ? '#ffffff' : 'none')
-      .attr('stroke-width', (d: any) => d.isAnomalous && !d.isIsolated ? 2 : 0)
+      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated, d.isSandboxed, d.id))
+      .attr('stroke', (d: any) => d.isSandboxed ? '#eab308' : d.isAnomalous && !d.isIsolated ? '#ffffff' : 'none')
+      .attr('stroke-width', (d: any) => d.isSandboxed || (d.isAnomalous && !d.isIsolated) ? 2 : 0)
+      .attr('stroke-dasharray', (d: any) => d.isSandboxed ? '4,4' : 'none')
       .style('cursor', 'pointer')
-      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "url(#glow)" : "none")
+      .style("filter", (d: any) => d.isSandboxed ? "drop-shadow(0px 0px 5px rgba(234, 179, 8, 0.8))" : d.isAnomalous && !d.isIsolated ? "url(#glow)" : "none")
       .on('mouseover', function(event, d: any) {
         const isExternal = d.id && String(d.id).includes('.');
-        d3.select(this).attr('r', isExternal ? 6 : (d.isAnomalous && !d.isIsolated ? 14 : 8));
+        d3.select(this).attr('r', isExternal ? 6 : (d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 14 : d.isSandboxed ? 10 : 8));
       })
       .on('mouseout', function(event, d: any) {
         const isExternal = d.id && String(d.id).includes('.');
-        d3.select(this).attr('r', isExternal ? 4 : (d.isAnomalous && !d.isIsolated ? 12 : 6));
+        d3.select(this).attr('r', isExternal ? 4 : (d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 12 : d.isSandboxed ? 8 : 6));
+
       })
       .on('click', (event, d: any) => {
          event.stopPropagation();
-         if (d.isAnomalous && !d.isIsolated) {
+         if (d.isAnomalous && !d.isIsolated && !d.isSandboxed) {
             setActionNode(d);
          } else {
             setActionNode(null);
@@ -230,17 +241,19 @@ export default function NetworkTopologyMap({
       .attr('dy', 22)
       .attr('text-anchor', 'middle')
       .text((d: any) => d.id)
-      .attr('font-size', (d: any) => d.isAnomalous && !d.isIsolated ? '13px' : '9px')
-      .attr('font-weight', (d: any) => d.isAnomalous && !d.isIsolated ? 'bold' : 'normal')
+      .attr('font-size', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? '13px' : '9px')
+      .attr('font-weight', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 'bold' : 'normal')
       .attr('fill', (d: any) => {
          if (d.isIsolated) return '#475569';
          const isExternal = d.id && String(d.id).includes('.');
+         if (d.isSandboxed) return '#eab308';
          if (isExternal) return '#3edcff';
+
          return d.isAnomalous ? '#ef4444' : 'rgba(255,255,255,0.5)';
       })
       .attr('font-family', 'monospace')
       .style('pointer-events', 'none')
-      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
+      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
 
     containedGroupRef.current = svg.append('g');
 
@@ -274,7 +287,7 @@ export default function NetworkTopologyMap({
       }
 
       pulseLayer.selectAll('circle.pulse').remove();
-      data.nodes.filter(n => n.isAnomalous && !n.isIsolated).forEach((d: any) => {
+      data.nodes.filter(n => n.isAnomalous && !n.isIsolated && !n.isSandboxed).forEach((d: any) => {
          pulseLayer.append('circle')
            .attr('class', 'pulse')
            .attr('cx', d.x)
@@ -313,6 +326,108 @@ export default function NetworkTopologyMap({
       simulationRef.current = null;
     };
   }, [data]);
+
+  useEffect(() => {
+    if (externalIsolatedNode && data.nodes.length > 0) {
+       const nodeId = externalIsolatedNode;
+       const nodeData = data.nodes.find(n => n.id === nodeId);
+       if (!nodeData || nodeData.isIsolated) return;
+       
+       nodeData.isIsolated = true;
+
+       const svg = d3.select(svgRef.current);
+
+       svg.selectAll('circle').filter((d: any) => d && d.id === nodeId)
+         .attr('fill', '#475569')
+         .attr('r', 6)
+         .attr('stroke', 'none')
+         .attr('stroke-width', 0)
+         .style('filter', 'none');
+
+       svg.selectAll('text').filter((d: any) => d && d.id === nodeId)
+         .attr('fill', '#475569')
+         .attr('font-size', '9px')
+         .attr('font-weight', 'normal')
+         .style('filter', 'none');
+
+       if (linkSelectionRef.current) {
+         linkSelectionRef.current.filter((l: any) => {
+           const sid = typeof l.source === 'object' ? l.source.id : l.source;
+           const tid = typeof l.target === 'object' ? l.target.id : l.target;
+           return sid === nodeId || tid === nodeId;
+         }).attr('stroke-opacity', 0);
+       }
+
+       if (containedGroupRef.current && nodeData) {
+         containedGroupRef.current.append('text')
+           .datum(nodeData)
+           .attr('x', nodeData.x)
+           .attr('y', nodeData.y)
+           .attr('dy', -15)
+           .attr('text-anchor', 'middle')
+           .text('CONTAINED')
+           .attr('font-size', '10px')
+           .attr('font-weight', 'bold')
+           .attr('fill', '#22c55e')
+           .attr('font-family', 'monospace')
+           .style('pointer-events', 'none')
+           .style('filter', 'drop-shadow(0px 0px 4px rgba(34,197,94,0.8))');
+       }
+
+       if (simulationRef.current) {
+         const linkForce = simulationRef.current.force('link') as d3.ForceLink<any, any>;
+         if (linkForce) {
+           const remainingLinks = linkForce.links().filter((l: any) => {
+             const sid = typeof l.source === 'object' ? l.source.id : l.source;
+             const tid = typeof l.target === 'object' ? l.target.id : l.target;
+             return sid !== nodeId && tid !== nodeId;
+           });
+           linkForce.links(remainingLinks);
+         }
+         simulationRef.current.alpha(0.05).restart();
+       }
+    }
+  }, [externalIsolatedNode, data.nodes]);
+
+  useEffect(() => {
+    if (externalSandboxedNode && data.nodes.length > 0) {
+       const nodeId = externalSandboxedNode;
+       const nodeData = data.nodes.find(n => n.id === nodeId);
+       if (!nodeData || nodeData.isSandboxed) return;
+       
+       nodeData.isSandboxed = true;
+
+       const svg = d3.select(svgRef.current);
+
+       svg.selectAll('circle').filter((d: any) => d && d.id === nodeId)
+         .attr('fill', 'rgba(234, 179, 8, 0.2)')
+         .attr('stroke', '#eab308')
+         .attr('stroke-width', 2)
+         .attr('stroke-dasharray', '4,4')
+         .attr('r', 8)
+         .style('filter', 'drop-shadow(0px 0px 5px rgba(234, 179, 8, 0.8))');
+
+       svg.selectAll('text').filter((d: any) => d && d.id === nodeId)
+         .attr('fill', '#eab308')
+         .style('filter', 'none');
+
+       if (containedGroupRef.current && nodeData) {
+         containedGroupRef.current.append('text')
+           .datum(nodeData)
+           .attr('x', nodeData.x)
+           .attr('y', nodeData.y)
+           .attr('dy', -15)
+           .attr('text-anchor', 'middle')
+           .text('SANDBOXED')
+           .attr('font-size', '10px')
+           .attr('font-weight', 'bold')
+           .attr('fill', '#eab308')
+           .attr('font-family', 'monospace')
+           .style('pointer-events', 'none')
+           .style('filter', 'drop-shadow(0px 0px 4px rgba(234,179,8,0.8))');
+       }
+    }
+  }, [externalSandboxedNode, data.nodes]);
 
   const handleIsolate = () => {
      if (!actionNode) return;
@@ -393,7 +508,7 @@ export default function NetworkTopologyMap({
       <svg ref={svgRef} className="w-full h-full" />
       
       {/* Isolate Button Overlay on click */}
-      {actionNode && !actionNode.isIsolated && (
+      {actionNode && !actionNode.isIsolated && !actionNode.isSandboxed && (
          <div 
            className="absolute z-50 pointer-events-auto transition-all"
            style={{ 
