@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Relational Database (Primary data store)
   postgres:
@@ -92,7 +90,7 @@ services:
       start_period: 30s
 
   seeder:
-    image: python:3.11-slim
+    build: ./backend
     working_dir: /app
     volumes:
       - ./backend:/app
@@ -101,8 +99,7 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
-    command: >
-      bash -c "pip install -r requirements.txt && python -m scripts.seed_demo_data"
+    command: python -m scripts.seed_demo_data
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,7 +112,7 @@ services:
     restart: on-failure
 
   backend:
-    image: python:3.11-slim
+    build: ./backend
     working_dir: /app
     volumes:
       - ./backend:/app
@@ -124,8 +121,7 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
-    command: >
-      bash -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
     ports:
       - "8000:8000"
     depends_on:
@@ -139,7 +135,7 @@ services:
       start_period: 120s
 
   simulator:
-    image: python:3.11-slim
+    build: ./backend
     working_dir: /app
     ports:
       - "8888:8888"
@@ -150,8 +146,7 @@ services:
       REDIS_HOST: redis
       INFLUXDB_URL: http://influxdb:8086
       KAFKA_BROKER: kafka:9092
-    command: >
-      bash -c "pip install -r requirements.txt && python -m simulator.main"
+    command: python -m simulator.main
     depends_on:
       backend:
         condition: service_healthy

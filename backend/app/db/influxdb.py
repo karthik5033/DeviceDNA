@@ -88,7 +88,7 @@ class InfluxDBService:
                 for record in table.records:
                     dt = record.get_time()
                     history.append({
-                        "timestamp": dt.isoformat() if dt else None,
+                        "timestamp": dt.isoformat().replace("+00:00", "Z") if dt and getattr(dt, "tzinfo", None) else (dt.isoformat() + "Z" if dt else None),
                         "trust_score": record.values.get("trust_score"),
                         "vae_score": record.values.get("vae_score"),
                         "if_score": record.values.get("if_score"),

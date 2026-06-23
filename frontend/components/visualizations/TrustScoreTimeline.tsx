@@ -1,51 +1,45 @@
 'use client';
 
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
 import { useEffect, useState, useRef } from 'react';
-import { io } from 'socket.io-client';
 
-export default function TrustScoreTimeline() {
+export default function TrustScoreTimeline({ liveScores }: { liveScores: Record<string, number> }) {
   const [data, setData] = useState<any[]>([]);
-  const batchRef = useRef<{ scores: number[]; currentSecond: number }>({ 
-      scores: [], 
-      currentSecond: Math.floor(Date.now() / 1000) 
-  });
+  const [mounted, setMounted] = useState(false);
+  const latestScoresRef = useRef(liveScores);
 
   useEffect(() => {
-    const socket = io('http://localhost:8000', {
-       transports: ['websocket'],
-    });
+    setMounted(true);
+  }, []);
 
-    const latestScores = new Map<string, number>();
-    let lastTick = Math.floor(Date.now() / 1000);
+  useEffect(() => {
+    latestScoresRef.current = liveScores;
+  }, [liveScores]);
 
-    socket.on('trust_update', (msg) => {
-        if (!msg.device_id || msg.score === undefined) return;
-        latestScores.set(msg.device_id, msg.score);
-        
-        const now = Date.now();
-        const currentSec = Math.floor(now / 1000);
-        
-        if (currentSec > lastTick) {
-            if (latestScores.size > 0) {
-                let sum = 0;
-                latestScores.forEach(score => sum += score);
-                const globalAvg = sum / latestScores.size;
-                
-                const timeStr = new Date(currentSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                
-                setData(prev => {
-                    const newData = [...prev, { time: timeStr, score: globalAvg, threshold: 40 }];
-                    if (newData.length > 60) return newData.slice(newData.length - 60);
-                    return newData;
-                });
-            }
-            lastTick = currentSec;
+  useEffect(() => {
+    const interval = setInterval(() => {
+        const scores = Object.values(latestScoresRef.current);
+        if (scores.length > 0) {
+            let sum = 0;
+            let minScore = 100;
+            scores.forEach(score => {
+                sum += score;
+                if (score < minScore) minScore = score;
+            });
+            const globalAvg = sum / scores.length;
+            
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            setData(prev => {
+                const newData = [...prev, { time: timeStr, score: minScore, avgScore: globalAvg, threshold: 40 }];
+                if (newData.length > 60) return newData.slice(newData.length - 60);
+                return newData;
+            });
         }
-    });
+    }, 1000);
 
     return () => {
-       socket.disconnect();
+       clearInterval(interval);
     };
   }, []);
 
@@ -70,15 +64,18 @@ export default function TrustScoreTimeline() {
     return null;
   };
 
+  if (!mounted) {
+    return <div className="w-full" style={{ height: 220 }} />;
+  }
+
   return (
-    <div className="w-full h-full text-xs p-4 pt-8" style={{ minHeight: 200 }}>
-      <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={150}>
-        <LineChart data={data} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+    <div className="w-full text-xs">
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={data} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
           <defs>
              <linearGradient id="scoreGlow" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#22c55e" stopOpacity={1}/>
-                <stop offset="50%" stopColor="#eab308" stopOpacity={1}/>
-                <stop offset="100%" stopColor="#ef4444" stopOpacity={1}/>
+                <stop offset="0%" stopColor="#3edcff" stopOpacity={0.5}/>
+                <stop offset="100%" stopColor="#3edcff" stopOpacity={0.01}/>
              </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
@@ -99,16 +96,16 @@ export default function TrustScoreTimeline() {
           
           <ReferenceLine y={40} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={2} label={{ position: 'insideTopLeft', value: 'THRESHOLD VIOLATION', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
           
-          <Line 
+          <Area 
             type="monotone" 
             dataKey="score" 
-            stroke="url(#scoreGlow)" 
+            stroke="#3edcff" 
+            fill="url(#scoreGlow)"
             strokeWidth={3} 
-            dot={false} 
             activeDot={{ r: 6, fill: '#000', stroke: '#ef4444', strokeWidth: 2 }} 
-            isAnimationActive={true}
+            isAnimationActive={false}
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );

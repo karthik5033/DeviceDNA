@@ -150,11 +150,17 @@ def generate_batch(size=100):
     """Generate a batch of regular traffic flows, filtering out restricted/isolated items."""
     flows = []
     
+    # Filter fleet: Do NOT generate background traffic for physical devices unless an attack is active on them
+    sim_fleet = [d for d in FLEET if not d.get('is_physical') or d['id'] in ATTACK_STATE]
+    
+    if not sim_fleet:
+        return flows
+        
+    weights = [DEVICE_PROFILES[d['device_class']]['normal_behavior']['avg_flows_per_5min'][0] for d in sim_fleet]
+    
     # Distribute flows roughly by the expected frequency in profiles
     for _ in range(size):
-        # Pick device weighted by their average flow count
-        weights = [DEVICE_PROFILES[d['device_class']]['normal_behavior']['avg_flows_per_5min'][0] for d in FLEET]
-        device = random.choices(FLEET, weights=weights, k=1)[0]
+        device = random.choices(sim_fleet, weights=weights, k=1)[0]
         flow = generate_flow(device)
         if flow:
             flows.append(flow)

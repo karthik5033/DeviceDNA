@@ -26,14 +26,14 @@ ATTACK_TARGETS = {
     1: {
         "name": "Stealth Recon Scan",
         "description": "Port-scanning recon injected into cameras and sensors. High unique-dst-IPs, TCP SYN flood, low packet size.",
-        "targets": ["dht11_sensor", "mq135_sensor", "ir_sensor", "SIM-0005", "SIM-0015", "SIM-0030"],
+        "targets": ["dht11_sensor", "mq135_sensor", "ir_sensor", "SIM-0005", "SIM-0015", "SIM-0030", "esp8266_wifi"],
         "payload": {"type": "recon", "intensity": 0.3},
         "duration_default": 300,
     },
     2: {
         "name": "Two-Stage Botnet C2 + DDoS",
         "description": "Stage 1: 120s of C2 beaconing on port 4444. Stage 2: 180s volumetric UDP DDoS flood.",
-        "targets": ["SIM-0009", "SIM-0012", "dht11_sensor", "SIM-0003"],
+        "targets": ["SIM-0009", "SIM-0012", "dht11_sensor", "SIM-0003", "esp8266_wifi"],
         "payload": {
             "type": "beacon",
             "intensity": 0.7,
@@ -47,14 +47,14 @@ ATTACK_TARGETS = {
     3: {
         "name": "Lateral Movement / Worm Spread",
         "description": "Simulates internal lateral movement by aggressively scanning internal peers on SSH/SMB/RDP ports.",
-        "targets": ["SIM-0010", "SIM-0011", "SIM-0016"],
+        "targets": ["SIM-0010", "SIM-0011", "SIM-0016", "esp8266_wifi"],
         "payload": {"type": "lateral", "intensity": 0.8},
         "duration_default": 300,
     },
     4: {
         "name": "Massive Data Exfiltration",
         "description": "Simulates ransomware or spyware exfiltrating huge volumes of outbound data over HTTPS.",
-        "targets": ["SIM-0040", "SIM-0041", "SIM-0045"],
+        "targets": ["SIM-0040", "SIM-0041", "SIM-0045", "esp8266_wifi"],
         "payload": {"type": "exfil", "intensity": 1.0},
         "duration_default": 300,
     },
@@ -233,9 +233,16 @@ async def stop_attack():
     except Exception:
         pass
 
+    from app.services.response_engine import response_engine
+    for device_id in set(cleared):
+        try:
+            await response_engine.release_device(device_id, score=100.0, hitl_decision="manual_override")
+        except Exception:
+            pass
+
     return {
         "status": "stopped",
-        "cleared_devices": cleared,
+        "cleared_devices": list(set(cleared)),
     }
 
 

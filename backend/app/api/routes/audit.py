@@ -82,5 +82,5 @@ def _serialize(log: ResponseAuditLog) -> dict:
         "hitl_decision": log.hitl_decision,
         "notes": log.notes,
         "shap_evidence": log.shap_evidence,
-        "timestamp": log.timestamp.isoformat() + "Z",
+        "timestamp": log.timestamp.isoformat().replace("+00:00", "Z") if log.timestamp.tzinfo else log.timestamp.isoformat() + "Z",
     }

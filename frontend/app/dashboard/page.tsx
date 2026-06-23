@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
-import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import HITLPanel from '@/components/HITLPanel';
 import HardwareNodesPanel from '@/components/HardwareNodesPanel';
 import SandboxInterceptCard from '@/components/visualizations/SandboxInterceptCard';
@@ -70,6 +70,7 @@ export default function DashboardOverview() {
   const [threatsMitigated, setThreatsMitigated] = useState(0);
   const [trustScores, setTrustScores] = useState<Record<string, number>>({});
   const [latestAlert, setLatestAlert] = useState<{device: string, type: string, time: string} | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [socketEvents, setSocketEvents] = useState<{timestamp: string, event: string, data: any}[]>([]);
 
   // Sparkline state
@@ -82,10 +83,12 @@ export default function DashboardOverview() {
     setSelectedNode({ id: nodeId, score: nodeScore });
     selectedNodeRef.current = nodeId;
     setSparkLoading(true);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
     fetch(`${apiUrl}/api/trust/${nodeId}/history?hours=6`)
       .then(res => res.json())
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then((data: any[]) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setSparkData(data.map((p: any) => ({ trust_score: p.trust_score ?? 0 })));
       })
       .catch(() => setSparkData([]))
@@ -104,9 +107,9 @@ export default function DashboardOverview() {
   };
 
   useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
     
-    // Fetch initial devices from Redis to populate the dashboard before WebSocket messages arrive
+    // Fetch initial state
     fetch(`${apiUrl}/api/trust/devices`)
       .then(res => res.json())
       .then(data => {
@@ -130,7 +133,7 @@ export default function DashboardOverview() {
       })
       .catch(err => console.error("Failed to fetch mitigated threats count", err));
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:8000';
+    const wsUrl = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:8000');
     const socket = io(wsUrl, {
        transports: ['polling', 'websocket'],
     });
@@ -140,8 +143,8 @@ export default function DashboardOverview() {
     });
 
     socket.on('trust_update', (data) => {
-        setTrustScores(prev => {
-            const newScores = { ...prev, [data.device_id]: data.score };
+        setTrustScores((prev: Record<string, number>) => {
+            const newScores: Record<string, number> = { ...prev, [data.device_id]: data.score };
             const managedKeys = Object.keys(newScores).filter(k => !String(k).includes('.'));
             setActiveDevices(managedKeys.length);
             const computedAvg = managedKeys.length > 0 ? managedKeys.reduce((a, b) => a + newScores[b], 0) / managedKeys.length : 0;
@@ -161,7 +164,8 @@ export default function DashboardOverview() {
         }
     });
 
-    socket.on('new_alert', (data) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    socket.on('new_alert', (data: any) => {
         setThreatsMitigated(prev => prev + 1);
         setLatestAlert({
             device: data.device || 'UNKNOWN',
@@ -182,9 +186,9 @@ export default function DashboardOverview() {
         setSandboxedNode(data.device_id);
     });
 
-    socket.onAny((event, data) => {
-       console.log('SOCKET EVENT:', event, data);
-       if (event === 'trust_update' || event === 'telemetry_ping' || event === 'new_alert') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    socket.onAny((event: string, data: any) => {
+       if (event === 'trust_update' || event === 'new_alert') {
            setSocketEvents(prev => {
                const newEvent = { timestamp: new Date().toISOString(), event, data };
                return [newEvent, ...prev].slice(0, 50);
@@ -222,7 +226,8 @@ export default function DashboardOverview() {
                <button 
                   onClick={async () => {
                      if (!confirm('Are you sure you want to completely reset the fleet and clear all alerts?')) return;
-                     await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/trust/reset`, { method: 'POST' });
+                     const url = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
+                     await fetch(`${url}/api/trust/reset`, { method: 'POST' });
                      window.location.reload();
                   }}
                   className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-xs font-mono font-bold tracking-widest transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)]"
@@ -378,8 +383,8 @@ export default function DashboardOverview() {
                    <div className="p-4 border-b border-white/5 bg-black/40 z-10">
                      <h2 className="font-semibold text-sm text-gray-200 tracking-widest uppercase">Trust Score Trajectory</h2>
                    </div>
-                   <div className="flex-1 w-full p-4 relative bg-gradient-to-br from-transparent to-black/30">
-                     <TrustScoreTimeline />
+                   <div className="flex-1 w-full bg-gradient-to-br from-transparent to-black/30 p-4">
+                     <TrustScoreTimeline liveScores={trustScores} />
                    </div>
                  </div>
 

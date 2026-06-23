@@ -45,7 +45,7 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
 RAW_TOPIC = "raw-flows"
 
 # Minimum seconds between trust evaluations per device (time-based fallback)
-MIN_EVAL_INTERVAL_SECS = 60
+MIN_EVAL_INTERVAL_SECS = 5
 
 # How many historical scores to use for baseline computation (sliding window)
 BASELINE_HISTORY_KEY = "baseline:{device_id}"
@@ -127,10 +127,11 @@ class TelemetryService:
     async def start(self):
         # Graceful handling if Kafka is not yet up in Docker
         try:
+            import uuid
             self.consumer = AIOKafkaConsumer(
                 RAW_TOPIC,
                 bootstrap_servers=KAFKA_BROKER,
-                group_id="backend_telemetry_3",
+                group_id=f"backend_telemetry_{uuid.uuid4().hex[:8]}",
                 auto_offset_reset="latest",
                 value_deserializer=lambda m: json.loads(m.decode('utf-8'))
             )
@@ -153,6 +154,21 @@ class TelemetryService:
         try:
             async for msg in self.consumer:
                 flow = msg.value
+                device_id = flow.get('device_id')
+                
+                # Check lag
+                flow_time_str = flow.get('timestamp')
+                if flow_time_str:
+                    try:
+                        flow_time = datetime.fromisoformat(flow_time_str.replace('Z', '+00:00')).timestamp()
+                        lag = time.time() - flow_time
+                        if lag > 10:
+                            logger.warning(f"Telemetry Consumer is lagging by {lag:.2f} seconds!")
+                    except Exception:
+                        pass
+
+                if device_id == 'esp8266_wifi':
+                    logger.info("Kafka consumer ACTUALLY RECEIVED esp8266_wifi flow!")
                 await self._process_flow(flow)
                 # Yield control to the event loop so FastAPI can handle HTTP requests
                 await asyncio.sleep(0)
@@ -209,6 +225,9 @@ class TelemetryService:
             self.flow_count += 1
             device_id = flow.get('device_id', 'unknown')
             
+            if device_id == 'esp8266_wifi':
+                logger.info(f"ESP8266: Flow received. Current buffer len: {len(self._flow_buffer.get('esp8266_wifi', []))}")
+
             if device_id not in self._flow_buffer:
                 self._flow_buffer[device_id] = []
             self._flow_buffer[device_id].append(flow)
@@ -220,8 +239,14 @@ class TelemetryService:
             # Evaluate when we have accumulated a batch of exactly 25 flows per device to match model norms
             flow_threshold = len(self._flow_buffer[device_id]) >= 25
 
+            if device_id == 'esp8266_wifi':
+                logger.info(f"ESP8266: flow_threshold={flow_threshold}, time_elapsed={time_elapsed}")
+
             if not flow_threshold and not time_elapsed and not is_policy_violation:
                 return
+
+            if device_id == 'esp8266_wifi':
+                logger.info(f"ESP8266: Evaluating now!")
 
             self._last_eval_time[device_id] = now
             

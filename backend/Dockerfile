@@ -5,7 +5,7 @@ WORKDIR /app
 # Install PyTorch CPU-only first (much smaller: ~200MB vs 755MB CUDA version)
 # Separated to maximize Docker layer caching and avoid timeout on the largest download
 RUN pip install --no-cache-dir --timeout 300 \
-    torch==2.2.2+cpu torchvision==0.17.2+cpu \
+    torch==2.3.0+cpu torchvision==0.18.0+cpu \
     --index-url https://download.pytorch.org/whl/cpu
 
 # Install remaining dependencies

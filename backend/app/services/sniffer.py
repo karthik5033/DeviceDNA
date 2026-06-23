@@ -60,6 +60,21 @@ class LivePacketSniffer:
             pass
         return None
 
+    def _get_device_by_ip_from_redis(self, ip: str):
+        try:
+            from app.db.redis import redis_client
+            for d in FLEET:
+                if d.get('is_physical') or d['id'] in ["dht11_sensor", "mq135_sensor", "ir_sensor", "ldr_sensor", "esp8266_wifi"]:
+                    dev_id = d['id']
+                    stored_ip = redis_client.get(f"physical_ip:{dev_id}")
+                    if stored_ip:
+                        stored_ip_str = stored_ip.decode('utf-8') if isinstance(stored_ip, bytes) else stored_ip
+                        if stored_ip_str == ip:
+                            return d
+        except Exception:
+            pass
+        return None
+
     def _packet_callback(self, packet):
         if not IP in packet:
             return
@@ -113,6 +128,19 @@ class LivePacketSniffer:
                                     logger.error(f"Failed to save dynamic IP to Redis: {re}")
             except Exception:
                 pass
+
+        # Dynamically map the phone attacker's IP to the esp8266_wifi device for the live demo
+        if TCP in packet and dst_port == 8000:
+            if src_ip not in IP_TO_DEVICE:
+                demo_dev = next((d for d in FLEET if d['id'] == 'esp8266_wifi'), None)
+                if demo_dev:
+                    logger.info(f"Dynamically mapped physical device esp8266_wifi to Attacker IP {src_ip} via HTTP")
+                    IP_TO_DEVICE[src_ip] = demo_dev
+                    try:
+                        from app.db.redis import redis_client
+                        redis_client.set(f"physical_ip:esp8266_wifi", src_ip)
+                    except Exception as re:
+                        logger.error(f"Failed to save dynamic IP to Redis: {re}")
 
         src_dev = IP_TO_DEVICE.get(src_ip) or self._get_device_by_ip_from_redis(src_ip)
         dst_dev = IP_TO_DEVICE.get(dst_ip) or self._get_device_by_ip_from_redis(dst_ip)
@@ -220,6 +248,10 @@ class LivePacketSniffer:
             device_id, src_ip, dst_ip, src_port, dst_port, protocol = key
             duration = int((time.time() - flow_data["start_time"]) * 1000)
             
+            if device_id == 'esp8266_wifi':
+                logger.info(f"Sniffer Flushing esp8266_wifi flow: src_port={src_port}, dst_port={dst_port}, packets={flow_data['packets']}")
+            
+            
             flow_record = {
                 "flow_id": str(uuid.uuid4()),
                 "timestamp": now_str,
@@ -239,7 +271,7 @@ class LivePacketSniffer:
 
             if self.producer:
                 try:
-                    await self.producer.send(TOPIC_NAME, flow_record)
+                    await self.producer.send_and_wait(TOPIC_NAME, flow_record)
                     sent_count += 1
                 except Exception as e:
                     logger.error(f"Sniffer failed to send flow to Kafka: {e}")

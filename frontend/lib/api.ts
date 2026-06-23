@@ -7,7 +7,7 @@
  * Backend base: http://localhost:8000 (via Next.js rewrites in next.config.mjs)
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

@@ -25,33 +25,6 @@ CREATE TABLE IF NOT EXISTS devices (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ALERTS
-CREATE TABLE IF NOT EXISTS alerts (
-    id VARCHAR(100) PRIMARY KEY,
-    device_id VARCHAR(100) NOT NULL,
-    severity VARCHAR(20) NOT NULL,
-    alert_type VARCHAR(50) NOT NULL,
-    message TEXT NOT NULL,
-    trust_score FLOAT NOT NULL,
-    vae_score FLOAT NOT NULL,
-    if_score FLOAT NOT NULL,
-    lstm_score FLOAT NOT NULL,
-    gnn_score FLOAT NOT NULL,
-    tib JSONB,
-    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_resolved BOOLEAN DEFAULT FALSE
-);
-
--- RESPONSE AUDIT LOGS
-CREATE TABLE IF NOT EXISTS response_audit_logs (
-    id VARCHAR(100) PRIMARY KEY,
-    device_id VARCHAR(100) NOT NULL,
-    trigger_score FLOAT NOT NULL,
-    response_tier INTEGER NOT NULL,
-    action VARCHAR(50) NOT NULL,
-    hitl_decision VARCHAR(50) NOT NULL,
-    timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-
 -- ALERTS Table
 CREATE TABLE IF NOT EXISTS alerts (
     id VARCHAR(100) PRIMARY KEY,
@@ -67,7 +40,6 @@ CREATE TABLE IF NOT EXISTS alerts (
     tib JSONB,
     timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
     is_resolved BOOLEAN DEFAULT FALSE
-
 );
 
 -- RESPONSE AUDIT LOGS Table
@@ -83,6 +55,11 @@ CREATE TABLE IF NOT EXISTS response_audit_logs (
     timestamp TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
 );
 
+-- PLATFORM SETTINGS Table
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key VARCHAR(100) PRIMARY KEY,
+    value JSONB NOT NULL
+);
 
 INSERT INTO platform_settings (key, value) VALUES
     ('response_mode', '"advisory"'),

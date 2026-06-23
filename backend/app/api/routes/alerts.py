@@ -16,7 +16,7 @@ def _serialize_alert(alert: Alert) -> dict:
         "message": alert.message,
         "trust_score": alert.trust_score,
         "is_resolved": alert.is_resolved,
-        "timestamp": alert.timestamp.isoformat() + "Z" if alert.timestamp else None,
+        "timestamp": alert.timestamp.isoformat().replace("+00:00", "Z") if getattr(alert.timestamp, "tzinfo", None) else (alert.timestamp.isoformat() + "Z" if alert.timestamp else None),
     }
 
 @router.get("/alerts")

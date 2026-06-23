@@ -39,7 +39,7 @@ export default function AttackSimulatorPanel() {
   const [activeStage, setActiveStage] = useState<string>('');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const apiUrl = typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
   const fetchAttacks = async () => {
     try {
