@@ -1,0 +1,460 @@
+﻿diff --git a/backend/app/api/routes/audit.py b/backend/app/api/routes/audit.py
+index c266b8b..9d24ea9 100644
+--- a/backend/app/api/routes/audit.py
++++ b/backend/app/api/routes/audit.py
+@@ -82,5 +82,5 @@ def _serialize(log: ResponseAuditLog) -> dict:
+         "hitl_decision": log.hitl_decision,
+         "notes": log.notes,
+         "shap_evidence": log.shap_evidence,
+-        "timestamp": log.timestamp.isoformat() + "Z",
++        "timestamp": log.timestamp.isoformat().replace("+00:00", "Z") if log.timestamp.tzinfo else log.timestamp.isoformat() + "Z",
+     }
+diff --git a/backend/app/api/routes/response.py b/backend/app/api/routes/response.py
+index c50004a..864d30f 100644
+--- a/backend/app/api/routes/response.py
++++ b/backend/app/api/routes/response.py
+@@ -75,9 +75,9 @@ async def deny_response(device_id: str):
+     tier = pending.get("target_tier", 4)
+ 
+     # Clear pending state is already done atomically via GETDEL.
+-    # Set a 5-minute ignore key (300 seconds)
++    # Set a 5-minute ignore key (300 seconds) storing the denied tier
+     override_key = f"response:override:{device_id}"
+-    await redis_client.setex(override_key, 300, "true")
++    await redis_client.setex(override_key, 300, str(tier))
+ 
+     # Log denial to PostgreSQL ResponseAuditLog
+     await response_engine._log_action_to_db(
+@@ -114,6 +114,7 @@ async def manual_isolate(device_id: str, body: ManualActionRequest = None):
+     """
+     score = body.score if body else 0.0
+     notes = body.notes if body else "Manually triggered by operator."
++    await redis_client.setex(f"response:manual:{device_id}", 86400, "true")
+     action_taken = await response_engine.isolate_device(
+         device_id, score, hitl_decision="manual_override"
+     )
+@@ -127,6 +128,7 @@ async def manual_sandbox(device_id: str, body: ManualActionRequest = None):
+     """
+     score = body.score if body else 0.0
+     notes = body.notes if body else "Manually sandboxed by operator."
++    await redis_client.setex(f"response:manual:{device_id}", 86400, "true")
+     action_taken = await response_engine.sandbox_device(device_id, score, notes=notes)
+     return {"device_id": device_id, "action": "sandbox", "newly_triggered": action_taken}
+ 
+@@ -138,6 +140,7 @@ async def manual_rate_limit(device_id: str, body: ManualActionRequest = None):
+     """
+     score = body.score if body else 0.0
+     notes = body.notes if body else "Manually rate-limited by operator."
++    await redis_client.setex(f"response:manual:{device_id}", 86400, "true")
+     action_taken = await response_engine.rate_limit_device(device_id, score, notes=notes)
+     return {"device_id": device_id, "action": "rate_limit", "newly_triggered": action_taken}
+ 
+@@ -149,6 +152,7 @@ async def manual_honeypot(device_id: str, body: ManualActionRequest = None):
+     """
+     score = body.score if body else 0.0
+     notes = body.notes if body else "Manually redirected to honeypot by operator."
++    await redis_client.setex(f"response:manual:{device_id}", 86400, "true")
+     action_taken = await response_engine.honeypot_device(
+         device_id, score, hitl_decision="manual_override"
+     )
+@@ -162,5 +166,6 @@ async def release_device(device_id: str, body: ManualActionRequest = None):
+     isolation, honeypot). Dispatches an MQTT 'recover' command and writes an audit record.
+     """
+     score = body.score if body else 0.0
++    await redis_client.delete(f"response:manual:{device_id}")
+     result = await response_engine.release_device(device_id, score, hitl_decision="manual_override")
+     return result
+diff --git a/backend/app/ml/nlp/policy_parser.py b/backend/app/ml/nlp/policy_parser.py
+index cb1727f..61504b9 100644
+--- a/backend/app/ml/nlp/policy_parser.py
++++ b/backend/app/ml/nlp/policy_parser.py
+@@ -38,10 +38,10 @@ DEVICE_TEMPLATES = {
+ }
+ 
+ CONDITION_TEMPLATES = {
+-    "ext_int_ratio > 0.8": ["contacts external ip address", "connects to external host", "outbound traffic to internet", "external ip"],
+-    "new_port_detected NOT IN device.dna.ports": ["opens a new port", "port scanning", "unauthorized open port", "new baseline port"],
+-    "dst_ip IN threat_feed.tor_exits": ["contacts a tor exit node", "tor traffic detected", "onion router routing", "tor network"],
+-    "bytes_sent > 5242880": ["upload exceeds limit", "large data transfer", "high bandwidth usage", "heavy upload"]
++    "external_traffic_ratio > 0.8": ["contacts external ip address", "connects to external host", "outbound traffic to internet", "external ip"],
++    "unique_dst_ports > 10": ["opens a new port", "port scanning", "unauthorized open port", "new baseline port"],
++    "external_traffic_ratio > 0.99": ["contacts a tor exit node", "tor traffic detected", "onion router routing", "tor network"],
++    "total_bytes > 5242880": ["upload exceeds limit", "large data transfer", "high bandwidth usage", "heavy upload"]
+ }
+ 
+ def parse_policy(statement: str) -> dict:
+@@ -138,12 +138,12 @@ def parse_policy(statement: str) -> dict:
+     upload_match = re.search(r"upload\s+exceeds\s+(\d+)\s*(mb|gb|kb|bytes)?", statement_lower)
+     
+     if "external ip" in statement_lower or "contacts external" in statement_lower:
+-        condition = "ext_int_ratio > 0.8"
++        condition = "external_traffic_ratio > 0.8"
+         severity = "HIGH"
+         if "after midnight" in statement_lower or "midnight" in statement_lower:
+             time_constraint = "hour >= 0 AND hour < 6"
+     elif "new port" in statement_lower or "baseline" in statement_lower or "opens a new port" in statement_lower:
+-        condition = "new_port_detected NOT IN device.dna.ports"
++        condition = "unique_dst_ports > 10"
+         severity = "CRITICAL"
+         time_constraint = None
+     elif upload_match:
+@@ -157,12 +157,12 @@ def parse_policy(statement: str) -> dict:
+             bytes_val = val * 1024
+         else:
+             bytes_val = val
+-        condition = f"bytes_sent > {bytes_val}"
++        condition = f"total_bytes > {bytes_val}"
+         severity = "MEDIUM"
+         if "one hour" in statement_lower or "1 hour" in statement_lower or "per hour" in statement_lower:
+             time_constraint = "window=1h"
+     elif "tor exit node" in statement_lower or "tor exit" in statement_lower or "tor" in statement_lower:
+-        condition = "dst_ip IN threat_feed.tor_exits"
++        condition = "external_traffic_ratio > 0.99"
+         severity = "HIGH"
+         time_constraint = None
+     elif condition is None:
+@@ -191,11 +191,11 @@ def parse_policy(statement: str) -> dict:
+         device_phrase = f"a {device_class} device" if device_class != "any" else "any device"
+         
+         cond_phrase = "contacts an external IP"
+-        if condition == "new_port_detected NOT IN device.dna.ports":
++        if condition == "unique_dst_ports > 10":
+             cond_phrase = "opens a new port not in its baseline"
+-        elif condition.startswith("bytes_sent >"):
++        elif condition.startswith("total_bytes >"):
+             cond_phrase = f"upload volume exceeds the baseline limit"
+-        elif condition == "dst_ip IN threat_feed.tor_exits":
++        elif condition == "external_traffic_ratio > 0.99":
+             cond_phrase = "contacts a TOR exit node"
+             
+         time_phrase = ""
+diff --git a/backend/app/services/mqtt_dispatcher.py b/backend/app/services/mqtt_dispatcher.py
+index 124eec2..3489da6 100644
+--- a/backend/app/services/mqtt_dispatcher.py
++++ b/backend/app/services/mqtt_dispatcher.py
+@@ -2,6 +2,7 @@ import os
+ import json
+ import logging
+ import asyncio
++import uuid
+ from datetime import datetime, timezone
+ from app.core.utils import utcnow_iso
+ 
+@@ -40,7 +41,8 @@ class MqttCommandDispatcher:
+         try:
+             import paho.mqtt.client as mqtt
+ 
+-            self.client = mqtt.Client(client_id="devicedna_backend_dispatcher")
++            client_id = f"devicedna_backend_dispatcher_{uuid.uuid4().hex[:8]}"
++            self.client = mqtt.Client(client_id=client_id)
+             self.client.on_connect = self._on_connect
+             self.client.on_disconnect = self._on_disconnect
+ 
+@@ -73,16 +75,20 @@ class MqttCommandDispatcher:
+ 
+     def _schedule_reconnect(self):
+         """Spawn an asyncio task to retry connection without blocking the event loop."""
++        # Grab loop from asyncio if possible
+         if self._loop is None:
+             try:
+                 self._loop = asyncio.get_running_loop()
+             except RuntimeError:
+-                pass
++                try:
++                    self._loop = asyncio.get_event_loop()
++                except RuntimeError:
++                    pass
+                 
+         if self._loop and self._loop.is_running():
+             self._loop.call_soon_threadsafe(self._create_reconnect_task)
+         else:
+-            logger.warning("No running event loop to schedule reconnect.")
++            logger.warning("No running event loop to schedule reconnect. Will retry later.")
+ 
+     def _create_reconnect_task(self):
+         self._loop.create_task(self._reconnect_task())
+diff --git a/backend/app/services/recovery_manager.py b/backend/app/services/recovery_manager.py
+index 6e618d4..dbb8554 100644
+--- a/backend/app/services/recovery_manager.py
++++ b/backend/app/services/recovery_manager.py
+@@ -68,6 +68,11 @@ async def evaluate_recovery(device_id: str, raw_trust_score: float, effective_tr
+                 
+                 # If all anomalies are cleared (multiplier back to 1.0), release restrictions!
+                 if multiplier >= 1.0:
++                    # Do not release if a human manually applied a restriction
++                    if await redis_client.exists(f"response:manual:{device_id}"):
++                        logger.info(f"Device {device_id} recovered, but manual restriction exists. Skipping automatic release.")
++                        return
++
+                     logger.info(f"Device {device_id} has fully recovered! Releasing all restrictions.")
+                     
+                     # Delete restriction keys
+diff --git a/backend/app/services/response_engine.py b/backend/app/services/response_engine.py
+index ab82299..3f7a78a 100644
+--- a/backend/app/services/response_engine.py
++++ b/backend/app/services/response_engine.py
+@@ -56,6 +56,18 @@ class ResponseEngine:
+         except Exception as e:
+             logger.error(f"Failed to write ResponseAuditLog for {device_id}: {e}")
+ 
++    async def _clear_other_tiers(self, device_id: str, active_tier: int):
++        """Helper to clear mutually exclusive state keys when transitioning to a new tier."""
++        tiers = {
++            2: f"response:rate_limit:{device_id}",
++            3: f"response:sandboxed:{device_id}",
++            4: f"response:isolated:{device_id}",
++            5: f"response:honeypot:{device_id}"
++        }
++        for t, key in tiers.items():
++            if t != active_tier:
++                await redis_client.delete(key)
++
+     # ΓöÇΓöÇ Action Execution Methods ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ 
+     async def rate_limit_device(self, device_id: str, score: float, notes: str = None) -> bool:
+@@ -65,6 +77,7 @@ class ResponseEngine:
+             return False
+ 
+         await redis_client.setex(key, RATE_LIMIT_TTL, "true")
++        await self._clear_other_tiers(device_id, 2)
+         await sio.emit("rate_limit_device", {
+             "device_id": device_id,
+             "action": "rate_limit",
+@@ -86,6 +99,7 @@ class ResponseEngine:
+             return False
+ 
+         await redis_client.setex(key, SANDBOX_TTL, "true")
++        await self._clear_other_tiers(device_id, 3)
+         await sio.emit("sandbox_device", {
+             "device_id": device_id,
+             "action": "sandbox",
+@@ -107,6 +121,7 @@ class ResponseEngine:
+             return False
+ 
+         await redis_client.setex(key, ISOLATION_TTL, "true")
++        await self._clear_other_tiers(device_id, 4)
+         await sio.emit("isolate_device", {
+             "device_id": device_id,
+             "action": "isolate",
+@@ -128,6 +143,7 @@ class ResponseEngine:
+             return False
+ 
+         await redis_client.setex(key, HONEYPOT_TTL, "true")
++        await self._clear_other_tiers(device_id, 5)
+         await sio.emit("honeypot_device", {
+             "device_id": device_id,
+             "action": "honeypot",
+@@ -174,9 +190,8 @@ class ResponseEngine:
+ 
+         # ΓöÇΓöÇ 1. Check for active manual overrides ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+         override_key = f"response:override:{device_id}"
+-        if await redis_client.exists(override_key):
+-            logger.info(f"Skipping triggers for {device_id}: Active human override/ignore key present.")
+-            return triggered
++        override_val = await redis_client.get(override_key)
++        denied_tier = int(override_val) if override_val else 0
+ 
+         # ΓöÇΓöÇ 2. Run Forensic Capture Triggers (independent of tiers) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+         # Forensic capture if GNN score is extremely elevated
+@@ -192,25 +207,29 @@ class ResponseEngine:
+ 
+         # Tier 2: Rate Limit (60 <= Score < 80)
+         elif trust_score >= 60:
+-            if await self.rate_limit_device(device_id, trust_score):
+-                triggered.append("rate_limit_device")
++            if denied_tier < 2:
++                if await self.rate_limit_device(device_id, trust_score):
++                    triggered.append("rate_limit_device")
+ 
+         # Tier 3: Sandbox (40 <= Score < 60)
+         elif trust_score >= 40:
+-            if await self.sandbox_device(device_id, trust_score):
+-                triggered.append("sandbox_device")
++            if denied_tier < 3:
++                if await self.sandbox_device(device_id, trust_score):
++                    triggered.append("sandbox_device")
+ 
+         # Tier 4: Quarantine (20 <= Score < 40)
+         elif trust_score >= 20:
+-            action_taken = await self._enqueue_hitl(device_id, 4, "quarantine", trust_score, shap_evidence)
+-            if action_taken:
+-                triggered.append("quarantine_pending")
++            if denied_tier < 4:
++                action_taken = await self._enqueue_hitl(device_id, 4, "quarantine", trust_score, shap_evidence)
++                if action_taken:
++                    triggered.append("quarantine_pending")
+ 
+         # Tier 5: Honeypot (Score < 20)
+         else:
+-            action_taken = await self._enqueue_hitl(device_id, 5, "honeypot", trust_score, shap_evidence)
+-            if action_taken:
+-                triggered.append("honeypot_pending")
++            if denied_tier < 5:
++                action_taken = await self._enqueue_hitl(device_id, 5, "honeypot", trust_score, shap_evidence)
++                if action_taken:
++                    triggered.append("honeypot_pending")
+ 
+         return triggered
+ 
+diff --git a/backend/app/services/telemetry.py b/backend/app/services/telemetry.py
+index 79ab2f4..a21378a 100644
+--- a/backend/app/services/telemetry.py
++++ b/backend/app/services/telemetry.py
+@@ -213,7 +213,7 @@ class TelemetryService:
+                 
+             is_anom = flow.get('is_anomaly') or flow.get('is_anomalous') or False
+             if is_anom:
+-                master_trust_engine.register_active_attack(device_id, flow.get('attack_type'))
++                await master_trust_engine.register_active_attack(device_id, flow.get('attack_type'))
+ 
+             if 'src_ip' in flow:
+                 src_ip = flow.get('src_ip')
+diff --git a/backend/app/services/trust_engine.py b/backend/app/services/trust_engine.py
+index 0d15103..591b754 100644
+--- a/backend/app/services/trust_engine.py
++++ b/backend/app/services/trust_engine.py
+@@ -1,6 +1,10 @@
+ import logging
+ import json
+ from datetime import datetime, timezone
++from sqlalchemy import select
++import re
++
++from app.schemas.features import FEATURE_NAMES
+ from app.ml.gmvae.scoring import gmvae_scorer
+ from app.ml.isolation_forest.model import if_scorer
+ from app.ml.lstm.scoring import lstm_scorer
+@@ -12,7 +16,7 @@ from app.services.recovery_manager import evaluate_recovery
+ from app.db.influxdb import influx_db
+ from app.db.redis import redis_client
+ from app.db.postgres import AsyncSessionLocal
+-from app.db.models import Alert
++from app.db.models import Alert, PolicyRule
+ from app.api.ws import sio
+ from app.ml.explainability.tib_generator import generate_tib
+ from app.core.device_profiles import FLEET
+@@ -30,41 +34,35 @@ for d in FLEET:
+ 
+ CLASS_POLICY_RULES = {
+     'camera': [
+-        (13, '<', 0.6),    # external_traffic_ratio < 0.6
+-        (1, '<', 1000000)  # total_bytes < 1000000
++        (FEATURE_NAMES.index('external_traffic_ratio'), '<', 0.6),
++        (FEATURE_NAMES.index('total_bytes'), '<', 1000000)
+     ],
+     'sensor': [
+-        (11, '<', 5),      # unique_dst_ips < 5
+-        (1, '<', 50000),   # total_bytes < 50000
+-        (13, '<', 0.05)    # external_traffic_ratio < 0.05
++        (FEATURE_NAMES.index('unique_dst_ips'), '<', 5),
++        (FEATURE_NAMES.index('total_bytes'), '<', 50000),
++        (FEATURE_NAMES.index('external_traffic_ratio'), '<', 0.05)
+     ],
+     'thermostat': [
+-        (1, '<', 75000),  # total_bytes < 75000
+-        (13, '<', 0.4),    # external_traffic_ratio < 0.4
+-        (11, '<', 5)       # unique_dst_ips < 5
++        (FEATURE_NAMES.index('total_bytes'), '<', 75000),
++        (FEATURE_NAMES.index('external_traffic_ratio'), '<', 0.4),
++        (FEATURE_NAMES.index('unique_dst_ips'), '<', 5)
+     ],
+     'access_control': [
+-        (1, '<', 150000), # total_bytes < 150000
+-        (13, '<', 0.2),     # external_traffic_ratio < 0.2
+-        (12, '<', 10)      # unique_dst_ports < 10
++        (FEATURE_NAMES.index('total_bytes'), '<', 150000),
++        (FEATURE_NAMES.index('external_traffic_ratio'), '<', 0.2),
++        (FEATURE_NAMES.index('unique_dst_ports'), '<', 10)
+     ],
+     'medical': [
+-        (13, '<', 0.3),     # external_traffic_ratio < 0.3
+-        (11, '<', 10)      # unique_dst_ips < 10
++        (FEATURE_NAMES.index('external_traffic_ratio'), '<', 0.3),
++        (FEATURE_NAMES.index('unique_dst_ips'), '<', 10)
+     ],
+     'industrial': [
+-        (13, '<', 0.1),     # external_traffic_ratio < 0.1
+-        (1, '<', 100000),  # total_bytes < 100000
+-        (11, '<', 5)       # unique_dst_ips < 5
++        (FEATURE_NAMES.index('external_traffic_ratio'), '<', 0.1),
++        (FEATURE_NAMES.index('total_bytes'), '<', 100000),
++        (FEATURE_NAMES.index('unique_dst_ips'), '<', 5)
+     ]
+ }
+ 
+-import re
+-from sqlalchemy import select
+-from app.db.models import PolicyRule
+-
+-from app.schemas.features import FEATURE_NAMES
+-
+ async def evaluate_policy_score(device_class: str, current_features: list[float]) -> float:
+     """
+     Evaluates policy conformance dynamically using active database policy rules,
+@@ -167,20 +165,21 @@ class TrustScoreEngine:
+         }
+         # Track recently evaluated devices for GNN co-evaluation proximity edges
+         self._recent_eval_window: list[str] = []
+-        # Dynamic active attacks tracking
+-        self.active_attacks = {}
+-
+-    def register_active_attack(self, device_id: str, attack_type: str):
+-        self.active_attacks[device_id] = {
++    async def register_active_attack(self, device_id: str, attack_type: str):
++        payload = {
+             "type": attack_type,
+-            "timestamp": datetime.now(timezone.utc)
++            "timestamp": datetime.now(timezone.utc).isoformat()
+         }
++        await redis_client.setex(f"active_attack:{device_id}", 15, json.dumps(payload))
+         
+-    def check_active_attack(self, device_id: str) -> str:
+-        if device_id in self.active_attacks:
+-            data = self.active_attacks[device_id]
+-            if (datetime.now(timezone.utc) - data["timestamp"]).total_seconds() < 15:
+-                return data["type"]
++    async def check_active_attack(self, device_id: str) -> str:
++        raw = await redis_client.get(f"active_attack:{device_id}")
++        if raw:
++            try:
++                data = json.loads(raw)
++                return data.get("type")
++            except Exception:
++                pass
+         return None
+ 
+     async def evaluate_device(self, device_id: str, device_class: str, current_features: list[float], baseline_stats: dict) -> dict:
+@@ -189,7 +188,7 @@ class TrustScoreEngine:
+         Requires the immediate 5-min feature snapshot, and the long-term static means/stds.
+         """
+         try:
+-            attack_type = self.check_active_attack(device_id)
++            attack_type = await self.check_active_attack(device_id)
+ 
+             # 1. GMVAE Hierarchical Digital Twin (0 -> 1.0) - ASYNC
+             vae_dev = await gmvae_scorer.score_deviation(device_id, device_class, current_features)
+@@ -256,10 +255,13 @@ class TrustScoreEngine:
+             # 3. Compute peer comparison score
+             if len(peer_scores) >= 2:
+                 class_mean = sum(peer_scores) / len(peer_scores)
+-                peer_score = 1.0 - abs(preliminary_trust_score - class_mean) / 100.0
++                if preliminary_trust_score < class_mean:
++                    peer_score = 1.0 - abs(preliminary_trust_score - class_mean) / 100.0
++                else:
++                    peer_score = 1.0 # Do not penalize if device is healthier than the class mean
+                 peer_score = max(0.0, min(1.0, peer_score))
+             else:
+-                peer_score = 0.5  # Neutral to avoid penalizing isolated devices
++                peer_score = 1.0  # Neutral
+                 
+             peer_penalty = 1.0 - peer_score
+ 
+@@ -285,7 +287,7 @@ class TrustScoreEngine:
+             if raw_prev:
+                 try:
+                     prev_data = json.loads(raw_prev)
+-                    prev_score = float(prev_data.get("raw_score", prev_data["score"]))
++                    prev_score = float(prev_data.get("raw_score", prev_data.get("score", 100.0)))
+                     # Asymmetric smoothing: drop fast (alpha=0.6), recover slow (alpha=0.1)
+                     # This ensures anomalies trigger alerts immediately, but recovery is stable
+                     alpha = 0.6 if final_trust_score < prev_score else 0.1

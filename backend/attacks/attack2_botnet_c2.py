@@ -65,7 +65,7 @@ def main():
     targets = [
         'SIM-0009',       # Virtual Camera
         'SIM-0012',       # Virtual Camera
-        'dht11_sensor',   # Physical Sensor (cross-device infection)
+        'smoke_sensor_2',   # Physical Sensor (cross-device infection)
         'SIM-0003',       # Virtual Sensor
     ]
 

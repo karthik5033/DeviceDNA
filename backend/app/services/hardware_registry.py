@@ -21,9 +21,9 @@ PHYSICAL_DEVICES = {
     "HW-003": "access_control",
     "HW-004": "industrial",
     "HW-005": "sensor",
-    "dht11_sensor": "sensor",
-    "mq135_sensor": "sensor",
-    "ir_sensor": "access_control",
+    "smoke_sensor_1": "sensor",
+    "smoke_sensor_2": "sensor",
+    "gyro_sensor": "sensor",
     "ldr_sensor": "sensor",
     "esp8266_wifi": "sensor"
 }

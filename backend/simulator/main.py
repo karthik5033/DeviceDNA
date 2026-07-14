@@ -19,7 +19,8 @@ TOPIC_NAME = "raw-flows"
 def run_mqtt_listener():
     try:
         import paho.mqtt.client as mqtt
-        client = mqtt.Client(client_id="devicedna_simulator_actuator")
+        from paho.mqtt.enums import CallbackAPIVersion
+        client = mqtt.Client(CallbackAPIVersion.VERSION1, client_id="devicedna_simulator_actuator")
         
         def on_connect(client, userdata, flags, rc):
             logger.info(f"Simulator MQTT Actuator connected with result code {rc}")

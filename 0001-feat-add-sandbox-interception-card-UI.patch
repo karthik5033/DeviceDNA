@@ -1,0 +1,528 @@
+From 155ac685df4a739a14f45999ddd53ac87e80b908 Mon Sep 17 00:00:00 2001
+From: karthik5033 <karthikkp5033@gmail.com>
+Date: Mon, 22 Jun 2026 01:45:22 +0530
+Subject: [PATCH] feat: add sandbox interception card UI
+
+---
+ frontend/app/dashboard/page.tsx               |  53 ++++--
+ .../visualizations/NetworkTopologyMap.tsx     | 154 +++++++++++++++---
+ .../visualizations/SandboxInterceptCard.tsx   |  96 +++++++++++
+ frontend/package-lock.json                    |  12 +-
+ frontend/package.json                         |   2 +-
+ 5 files changed, 275 insertions(+), 42 deletions(-)
+ create mode 100644 frontend/components/visualizations/SandboxInterceptCard.tsx
+
+diff --git a/frontend/app/dashboard/page.tsx b/frontend/app/dashboard/page.tsx
+index a59c1d6..3c4a924 100644
+--- a/frontend/app/dashboard/page.tsx
++++ b/frontend/app/dashboard/page.tsx
+@@ -7,10 +7,11 @@ import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
+ import { motion, AnimatePresence } from 'framer-motion';
+ import { useState, useEffect, useCallback, useRef } from 'react';
+ import { io } from 'socket.io-client';
+-import { ResponsiveContainer, AreaChart, Area } from 'recharts';
++import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+ import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
+ import HITLPanel from '@/components/HITLPanel';
+ import HardwareNodesPanel from '@/components/HardwareNodesPanel';
++import SandboxInterceptCard from '@/components/visualizations/SandboxInterceptCard';
+ 
+ // Pre-compute stable particle data to avoid SSR/client hydration mismatch
+ type ParticleData = {
+@@ -60,6 +61,7 @@ const ParticleField = ({ success }: { success: boolean }) => {
+ 
+ export default function DashboardOverview() {
+   const [isolatedNode, setIsolatedNode] = useState<string | null>(null);
++  const [sandboxedNode, setSandboxedNode] = useState<string | null>(null);
+ 
+   const [activeDevices, setActiveDevices] = useState(0);
+   const [criticalAlerts, setCriticalAlerts] = useState(0);
+@@ -167,6 +169,18 @@ export default function DashboardOverview() {
+         });
+     });
+ 
++    socket.on('isolate_device', (data) => {
++        setIsolatedNode(data.device_id);
++    });
++
++    socket.on('honeypot_device', (data) => {
++        setIsolatedNode(data.device_id);
++    });
++
++    socket.on('sandbox_device', (data) => {
++        setSandboxedNode(data.device_id);
++    });
++
+     socket.onAny((event, data) => {
+        console.log('SOCKET EVENT:', event, data);
+        if (event === 'trust_update' || event === 'telemetry_ping' || event === 'new_alert') {
+@@ -240,7 +254,7 @@ export default function DashboardOverview() {
+ 
+         {/* Main Resizable Area */}
+         <div className="flex-1 min-h-[550px] relative">
+-          <PanelGroup autoSaveId="dashboard-panels" orientation="horizontal" className="w-full h-full">
++          <PanelGroup autoSaveId="dashboard-panels" direction="horizontal" className="w-full h-full">
+             {/* Left Side: Topology Map + Sparkline */}
+             <Panel defaultSize={75} minSize={50}>
+               <div className="h-full flex flex-col gap-6 pr-3">
+@@ -254,7 +268,7 @@ export default function DashboardOverview() {
+                     </div>
+                   </div>
+                   <div className="flex-1 w-full relative bg-gradient-to-br from-transparent to-black/30 min-h-[300px]">
+-                    <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} />
++                    <NetworkTopologyMap onIsolate={handleIsolate} onNodeClick={handleNodeClick} liveScores={trustScores} externalIsolatedNode={isolatedNode} externalSandboxedNode={sandboxedNode} />
+                   </div>
+                 </div>
+ 
+@@ -266,11 +280,11 @@ export default function DashboardOverview() {
+                       animate={{ opacity: 1, y: 0, height: 'auto' }}
+                       exit={{ opacity: 0, y: -10, height: 0 }}
+                       transition={{ duration: 0.3, ease: 'easeOut' }}
+-                      className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5"
++                      className="bg-white/[0.03] backdrop-blur-2xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5 flex flex-col md:flex-row"
+                     >
+-                      <div className="p-4 flex items-center justify-between">
+-                        <div className="flex items-center gap-4">
+-                          <div className="flex flex-col">
++                      <div className="p-4 flex flex-1 items-center justify-between">
++                        <div className="flex items-center gap-4 flex-1">
++                          <div className="flex flex-col min-w-[120px]">
+                             <span className="text-[10px] font-bold text-gray-500 tracking-widest uppercase">Selected Device</span>
+                             <span className="text-lg font-mono font-bold text-white tracking-tight">{selectedNode.id}</span>
+                           </div>
+@@ -308,13 +322,26 @@ export default function DashboardOverview() {
+                           </div>
+                           <span className="text-[10px] font-mono text-gray-500 ml-2">6h history</span>
+                         </div>
+-                        <button
+-                          onClick={handleCloseSparkline}
+-                          className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10"
+-                        >
+-                          <X className="w-4 h-4" />
+-                        </button>
++                        {selectedNode.id !== sandboxedNode && (
++                          <button
++                            onClick={handleCloseSparkline}
++                            className="text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10 ml-4 self-start"
++                          >
++                            <X className="w-4 h-4" />
++                          </button>
++                        )}
+                       </div>
++                      {selectedNode.id === sandboxedNode && (
++                         <div className="w-full md:w-[450px] min-h-[200px] border-t md:border-t-0 md:border-l border-white/10 relative">
++                           <SandboxInterceptCard deviceId={selectedNode.id} />
++                           <button
++                             onClick={handleCloseSparkline}
++                             className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors p-1 rounded hover:bg-white/10 bg-black/40"
++                           >
++                             <X className="w-4 h-4" />
++                           </button>
++                         </div>
++                      )}
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
+diff --git a/frontend/components/visualizations/NetworkTopologyMap.tsx b/frontend/components/visualizations/NetworkTopologyMap.tsx
+index 00091a7..7c698b5 100644
+--- a/frontend/components/visualizations/NetworkTopologyMap.tsx
++++ b/frontend/components/visualizations/NetworkTopologyMap.tsx
+@@ -6,11 +6,15 @@ import * as d3 from 'd3';
+ export default function NetworkTopologyMap({ 
+   onIsolate, 
+   onNodeClick, 
+-  liveScores 
++  liveScores,
++  externalIsolatedNode,
++  externalSandboxedNode
+ }: { 
+   onIsolate?: (id: string) => void; 
+   onNodeClick?: (id: string, score: number) => void;
+   liveScores?: Record<string, number>;
++  externalIsolatedNode?: string | null;
++  externalSandboxedNode?: string | null;
+ }) {
+   const containerRef = useRef<HTMLDivElement>(null);
+   const svgRef = useRef<SVGSVGElement>(null);
+@@ -33,7 +37,8 @@ export default function NetworkTopologyMap({
+           id,
+           trust_score: score,
+           isAnomalous: score < 60,
+-          isIsolated: false
++          isIsolated: false,
++          isSandboxed: false
+         });
+       });
+ 
+@@ -67,12 +72,12 @@ export default function NetworkTopologyMap({
+         d.trust_score = liveScores[d.id];
+         d.isAnomalous = d.trust_score < 60;
+       }
+-      const isAnom = d.isAnomalous && !d.isIsolated;
++      const isAnom = d.isAnomalous && !d.isIsolated && !d.isSandboxed;
+       // Continuous HSL gradient
+       const hue = Math.round((d.trust_score / 100) * 120);
+       const sat = d.trust_score < 50 ? 85 : 75;
+       const lit = d.trust_score < 30 ? 45 : d.trust_score < 70 ? 50 : 45;
+-      let color = d.isIsolated ? '#475569' : `hsl(${hue}, ${sat}%, ${lit}%)`;
++      let color = d.isIsolated ? '#475569' : d.isSandboxed ? 'rgba(234, 179, 8, 0.2)' : `hsl(${hue}, ${sat}%, ${lit}%)`;
+       
+       d3.select(this)
+         .attr('fill', color)
+@@ -84,13 +89,13 @@ export default function NetworkTopologyMap({
+     // Update label styles
+     svg.selectAll('text').each(function(d: any) {
+       if (!d) return;
+-      // Don't modify the contained badges
+-      if (d3.select(this).text() === 'CONTAINED') return;
+-      const isAnom = d.isAnomalous && !d.isIsolated;
++      // Don't modify the contained/sandboxed badges
++      if (d3.select(this).text() === 'CONTAINED' || d3.select(this).text() === 'SANDBOXED') return;
++      const isAnom = d.isAnomalous && !d.isIsolated && !d.isSandboxed;
+       d3.select(this)
+         .attr('font-size', isAnom ? '13px' : '9px')
+         .attr('font-weight', isAnom ? 'bold' : 'normal')
+-        .attr('fill', d.isIsolated ? '#475569' : isAnom ? '#ef4444' : 'rgba(255,255,255,0.5)')
++        .attr('fill', d.isIsolated ? '#475569' : d.isSandboxed ? '#eab308' : isAnom ? '#ef4444' : 'rgba(255,255,255,0.5)')
+         .style("filter", isAnom ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
+     });
+   }, [liveScores]);
+@@ -109,8 +114,9 @@ export default function NetworkTopologyMap({
+     svg.on('click', () => setActionNode(null));
+ 
+     // Continuous HSL gradient: red(0) → orange(30) → yellow(50) → green(120)
+-    const colorScale = (score: number, isIsolated: boolean) => {
++    const colorScale = (score: number, isIsolated: boolean, isSandboxed: boolean) => {
+       if (isIsolated) return '#475569';
++      if (isSandboxed) return 'rgba(234, 179, 8, 0.2)';
+       // Map score 0-100 to hue 0-120 (red to green)
+       const hue = Math.round((score / 100) * 120);
+       const saturation = score < 50 ? 85 : 75;
+@@ -187,21 +193,22 @@ export default function NetworkTopologyMap({
+       .selectAll('circle')
+       .data(data.nodes)
+       .join('circle')
+-      .attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 12 : 6)
+-      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated))
+-      .attr('stroke', (d: any) => d.isAnomalous && !d.isIsolated ? '#ffffff' : 'none')
+-      .attr('stroke-width', (d: any) => d.isAnomalous && !d.isIsolated ? 2 : 0)
++      .attr('r', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 12 : d.isSandboxed ? 8 : 6)
++      .attr('fill', (d: any) => colorScale(d.trust_score, d.isIsolated, d.isSandboxed))
++      .attr('stroke', (d: any) => d.isSandboxed ? '#eab308' : d.isAnomalous && !d.isIsolated ? '#ffffff' : 'none')
++      .attr('stroke-width', (d: any) => d.isSandboxed || (d.isAnomalous && !d.isIsolated) ? 2 : 0)
++      .attr('stroke-dasharray', (d: any) => d.isSandboxed ? '4,4' : 'none')
+       .style('cursor', 'pointer')
+-      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "url(#glow)" : "none")
++      .style("filter", (d: any) => d.isSandboxed ? "drop-shadow(0px 0px 5px rgba(234, 179, 8, 0.8))" : d.isAnomalous && !d.isIsolated ? "url(#glow)" : "none")
+       .on('mouseover', function() {
+-        d3.select(this).attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 14 : 8);
++        d3.select(this).attr('r', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 14 : d.isSandboxed ? 10 : 8);
+       })
+       .on('mouseout', function() {
+-        d3.select(this).attr('r', (d: any) => d.isAnomalous && !d.isIsolated ? 12 : 6);
++        d3.select(this).attr('r', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 12 : d.isSandboxed ? 8 : 6);
+       })
+       .on('click', (event, d: any) => {
+          event.stopPropagation();
+-         if (d.isAnomalous && !d.isIsolated) {
++         if (d.isAnomalous && !d.isIsolated && !d.isSandboxed) {
+             setActionNode(d);
+          } else {
+             setActionNode(null);
+@@ -217,15 +224,16 @@ export default function NetworkTopologyMap({
+       .attr('dy', 22)
+       .attr('text-anchor', 'middle')
+       .text((d: any) => d.id)
+-      .attr('font-size', (d: any) => d.isAnomalous && !d.isIsolated ? '13px' : '9px')
+-      .attr('font-weight', (d: any) => d.isAnomalous && !d.isIsolated ? 'bold' : 'normal')
++      .attr('font-size', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? '13px' : '9px')
++      .attr('font-weight', (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? 'bold' : 'normal')
+       .attr('fill', (d: any) => {
+          if (d.isIsolated) return '#475569';
++         if (d.isSandboxed) return '#eab308';
+          return d.isAnomalous ? '#ef4444' : 'rgba(255,255,255,0.5)';
+       })
+       .attr('font-family', 'monospace')
+       .style('pointer-events', 'none')
+-      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
++      .style("filter", (d: any) => d.isAnomalous && !d.isIsolated && !d.isSandboxed ? "drop-shadow(0px 0px 5px rgba(239,64,64,1))" : "none");
+ 
+     containedGroupRef.current = svg.append('g');
+ 
+@@ -259,7 +267,7 @@ export default function NetworkTopologyMap({
+       }
+ 
+       pulseLayer.selectAll('circle.pulse').remove();
+-      data.nodes.filter(n => n.isAnomalous && !n.isIsolated).forEach((d: any) => {
++      data.nodes.filter(n => n.isAnomalous && !n.isIsolated && !n.isSandboxed).forEach((d: any) => {
+          pulseLayer.append('circle')
+            .attr('class', 'pulse')
+            .attr('cx', d.x)
+@@ -299,6 +307,108 @@ export default function NetworkTopologyMap({
+     };
+   }, [data]);
+ 
++  useEffect(() => {
++    if (externalIsolatedNode && data.nodes.length > 0) {
++       const nodeId = externalIsolatedNode;
++       const nodeData = data.nodes.find(n => n.id === nodeId);
++       if (!nodeData || nodeData.isIsolated) return;
++       
++       nodeData.isIsolated = true;
++
++       const svg = d3.select(svgRef.current);
++
++       svg.selectAll('circle').filter((d: any) => d && d.id === nodeId)
++         .attr('fill', '#475569')
++         .attr('r', 6)
++         .attr('stroke', 'none')
++         .attr('stroke-width', 0)
++         .style('filter', 'none');
++
++       svg.selectAll('text').filter((d: any) => d && d.id === nodeId)
++         .attr('fill', '#475569')
++         .attr('font-size', '9px')
++         .attr('font-weight', 'normal')
++         .style('filter', 'none');
++
++       if (linkSelectionRef.current) {
++         linkSelectionRef.current.filter((l: any) => {
++           const sid = typeof l.source === 'object' ? l.source.id : l.source;
++           const tid = typeof l.target === 'object' ? l.target.id : l.target;
++           return sid === nodeId || tid === nodeId;
++         }).attr('stroke-opacity', 0);
++       }
++
++       if (containedGroupRef.current && nodeData) {
++         containedGroupRef.current.append('text')
++           .datum(nodeData)
++           .attr('x', nodeData.x)
++           .attr('y', nodeData.y)
++           .attr('dy', -15)
++           .attr('text-anchor', 'middle')
++           .text('CONTAINED')
++           .attr('font-size', '10px')
++           .attr('font-weight', 'bold')
++           .attr('fill', '#22c55e')
++           .attr('font-family', 'monospace')
++           .style('pointer-events', 'none')
++           .style('filter', 'drop-shadow(0px 0px 4px rgba(34,197,94,0.8))');
++       }
++
++       if (simulationRef.current) {
++         const linkForce = simulationRef.current.force('link') as d3.ForceLink<any, any>;
++         if (linkForce) {
++           const remainingLinks = linkForce.links().filter((l: any) => {
++             const sid = typeof l.source === 'object' ? l.source.id : l.source;
++             const tid = typeof l.target === 'object' ? l.target.id : l.target;
++             return sid !== nodeId && tid !== nodeId;
++           });
++           linkForce.links(remainingLinks);
++         }
++         simulationRef.current.alpha(0.05).restart();
++       }
++    }
++  }, [externalIsolatedNode, data.nodes]);
++
++  useEffect(() => {
++    if (externalSandboxedNode && data.nodes.length > 0) {
++       const nodeId = externalSandboxedNode;
++       const nodeData = data.nodes.find(n => n.id === nodeId);
++       if (!nodeData || nodeData.isSandboxed) return;
++       
++       nodeData.isSandboxed = true;
++
++       const svg = d3.select(svgRef.current);
++
++       svg.selectAll('circle').filter((d: any) => d && d.id === nodeId)
++         .attr('fill', 'rgba(234, 179, 8, 0.2)')
++         .attr('stroke', '#eab308')
++         .attr('stroke-width', 2)
++         .attr('stroke-dasharray', '4,4')
++         .attr('r', 8)
++         .style('filter', 'drop-shadow(0px 0px 5px rgba(234, 179, 8, 0.8))');
++
++       svg.selectAll('text').filter((d: any) => d && d.id === nodeId)
++         .attr('fill', '#eab308')
++         .style('filter', 'none');
++
++       if (containedGroupRef.current && nodeData) {
++         containedGroupRef.current.append('text')
++           .datum(nodeData)
++           .attr('x', nodeData.x)
++           .attr('y', nodeData.y)
++           .attr('dy', -15)
++           .attr('text-anchor', 'middle')
++           .text('SANDBOXED')
++           .attr('font-size', '10px')
++           .attr('font-weight', 'bold')
++           .attr('fill', '#eab308')
++           .attr('font-family', 'monospace')
++           .style('pointer-events', 'none')
++           .style('filter', 'drop-shadow(0px 0px 4px rgba(234,179,8,0.8))');
++       }
++    }
++  }, [externalSandboxedNode, data.nodes]);
++
+   const handleIsolate = () => {
+      if (!actionNode) return;
+      const nodeId = actionNode.id;
+@@ -378,7 +488,7 @@ export default function NetworkTopologyMap({
+       <svg ref={svgRef} className="w-full h-full" />
+       
+       {/* Isolate Button Overlay on click */}
+-      {actionNode && !actionNode.isIsolated && (
++      {actionNode && !actionNode.isIsolated && !actionNode.isSandboxed && (
+          <div 
+            className="absolute z-50 pointer-events-auto transition-all"
+            style={{ 
+diff --git a/frontend/components/visualizations/SandboxInterceptCard.tsx b/frontend/components/visualizations/SandboxInterceptCard.tsx
+new file mode 100644
+index 0000000..464f08a
+--- /dev/null
++++ b/frontend/components/visualizations/SandboxInterceptCard.tsx
+@@ -0,0 +1,96 @@
++import React, { useEffect, useState, useRef } from 'react';
++import { motion, AnimatePresence } from 'framer-motion';
++import { Terminal, ShieldAlert, Activity, ShieldX } from 'lucide-react';
++
++const mockLogs = [
++  "Initializing intercept payload...",
++  "Running nmap -sS -p 1-65535 10.0.0.1/24",
++  "Port 22/tcp open (ssh)",
++  "Port 80/tcp open (http)",
++  "Attempting SSH brute force attack (admin/admin)...",
++  "Connection refused by sandbox proxy.",
++  "Attempting CVE-2021-44228 exploit on port 8080...",
++  "Payload blocked by deep packet inspection.",
++  "Injecting reverse shell script...",
++  "Execution sandboxed: EPERM",
++  "Data exfiltration attempt detected (1.4MB to 185.12.x.x)",
++  "Dropping egress packets.",
++  "Scanning internal subnets...",
++  "ARP spoofing attempt detected and neutralized."
++];
++
++export default function SandboxInterceptCard({ deviceId }: { deviceId: string }) {
++  const [logs, setLogs] = useState<string[]>([]);
++  const [packetsBlocked, setPacketsBlocked] = useState(0);
++  const scrollRef = useRef<HTMLDivElement>(null);
++
++  useEffect(() => {
++    let index = 0;
++    
++    // Initial burst
++    setLogs(["[SYSTEM] Device isolated into VLAN 99 (Sandbox)", "[SYSTEM] Deep packet inspection enabled"]);
++    
++    const interval = setInterval(() => {
++      setLogs(prev => [...prev, `[${new Date().toISOString().split('T')[1].slice(0, 8)}] ${mockLogs[index % mockLogs.length]}`]);
++      setPacketsBlocked(prev => prev + Math.floor(Math.random() * 45) + 10);
++      index++;
++    }, 1200);
++
++    return () => clearInterval(interval);
++  }, []);
++
++  useEffect(() => {
++    if (scrollRef.current) {
++      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
++    }
++  }, [logs]);
++
++  return (
++    <div className="flex flex-col h-full w-full bg-black/40 border-l border-yellow-500/20 p-4">
++      <div className="flex items-center justify-between mb-4">
++        <div className="flex items-center gap-2">
++          <ShieldAlert className="w-4 h-4 text-yellow-500" />
++          <h3 className="text-xs font-bold text-yellow-500 tracking-widest uppercase">Live Intercept</h3>
++        </div>
++        <div className="flex gap-4">
++          <div className="flex flex-col items-end">
++             <span className="text-[9px] text-gray-500 uppercase tracking-widest">Egress Dropped</span>
++             <span className="text-xs font-mono font-bold text-red-400">{packetsBlocked.toLocaleString()} pkt</span>
++          </div>
++          <div className="flex flex-col items-end">
++             <span className="text-[9px] text-gray-500 uppercase tracking-widest">Status</span>
++             <span className="text-xs font-mono font-bold text-yellow-500 animate-pulse">CONTAINED</span>
++          </div>
++        </div>
++      </div>
++
++      <div 
++        ref={scrollRef}
++        className="flex-1 bg-black/60 rounded border border-white/5 p-3 overflow-y-auto font-mono text-[10px] sm:text-xs text-green-400/80 shadow-inner custom-scrollbar"
++      >
++        <AnimatePresence initial={false}>
++          {logs.map((log, i) => (
++            <motion.div
++              key={i}
++              initial={{ opacity: 0, x: -10 }}
++              animate={{ opacity: 1, x: 0 }}
++              className="mb-1 break-all"
++            >
++              {log.includes('blocked') || log.includes('dropped') || log.includes('neutralized') || log.includes('refused') ? (
++                <span className="text-red-400">{log}</span>
++              ) : log.includes('[SYSTEM]') ? (
++                <span className="text-yellow-500">{log}</span>
++              ) : (
++                <span>{log}</span>
++              )}
++            </motion.div>
++          ))}
++        </AnimatePresence>
++        <div className="mt-2 flex items-center gap-2 text-yellow-500/50 animate-pulse">
++          <Terminal className="w-3 h-3" />
++          <span>Capturing payloads...</span>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index a353eba..5ab7844 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -18,7 +18,7 @@
+         "next": "14.2.35",
+         "react": "^18",
+         "react-dom": "^18",
+-        "react-resizable-panels": "^4.11.2",
++        "react-resizable-panels": "^2.1.7",
+         "recharts": "^3.7.0",
+         "socket.io-client": "^4.8.3",
+         "tailwind-merge": "^3.5.0",
+@@ -5675,13 +5675,13 @@
+       }
+     },
+     "node_modules/react-resizable-panels": {
+-      "version": "4.11.2",
+-      "resolved": "https://registry.npmjs.org/react-resizable-panels/-/react-resizable-panels-4.11.2.tgz",
+-      "integrity": "sha512-+kfFbDZ8mygc7g0vxOcDzCVGuwiIUOnILqPoUHo6/uP+Mmyx6HzZU+kj1aOPDlktXuobYbr6BtQekvJwHRX4Eg==",
++      "version": "2.1.7",
++      "resolved": "https://registry.npmjs.org/react-resizable-panels/-/react-resizable-panels-2.1.7.tgz",
++      "integrity": "sha512-JtT6gI+nURzhMYQYsx8DKkx6bSoOGFp7A3CwMrOb8y5jFHFyqwo9m68UhmXRw57fRVJksFn1TSlm3ywEQ9vMgA==",
+       "license": "MIT",
+       "peerDependencies": {
+-        "react": "^18.0.0 || ^19.0.0",
+-        "react-dom": "^18.0.0 || ^19.0.0"
++        "react": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc",
++        "react-dom": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc"
+       }
+     },
+     "node_modules/read-cache": {
+diff --git a/frontend/package.json b/frontend/package.json
+index e03cacc..8166536 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -19,7 +19,7 @@
+     "next": "14.2.35",
+     "react": "^18",
+     "react-dom": "^18",
+-    "react-resizable-panels": "^4.11.2",
++    "react-resizable-panels": "^2.1.7",
+     "recharts": "^3.7.0",
+     "socket.io-client": "^4.8.3",
+     "tailwind-merge": "^3.5.0",
+-- 
+2.48.1.windows.1
+

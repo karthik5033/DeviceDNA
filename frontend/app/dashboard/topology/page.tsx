@@ -24,12 +24,12 @@ export default function TopologyPage() {
 
   useEffect(() => {
     // Fetch initial devices from Redis
-    fetch('http://localhost:8000/api/trust/devices')
+    fetch((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000') + '/api/trust/devices')
       .then(res => res.json())
       .then(data => setTrustScores(data))
       .catch(err => console.error("Failed to fetch initial devices", err));
 
-    const socket = io('http://localhost:8000', {
+    const socket = io((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000'), {
       transports: ['polling', 'websocket'],
     });
 

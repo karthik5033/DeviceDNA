@@ -22,7 +22,7 @@ def get_local_subnet():
         s.close()
     
     if local_ip == '127.0.0.1':
-        return "192.168.43.0/24" # Fallback
+        return "10.244.239.0/24" # Fallback
         
     parts = local_ip.split('.')
     return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
@@ -41,7 +41,7 @@ def main():
     # Target both physical hardware sensors AND specific virtual devices
     targets = [
         # Physical Devices
-        'dht11_sensor', 'mq135_sensor', 'ir_sensor',
+        'smoke_sensor_1', 'smoke_sensor_2', 'gyro_sensor',
         # Virtual Devices
         'SIM-0005', 'SIM-0015', 'SIM-0030'
     ]

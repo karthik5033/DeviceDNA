@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DeviceDNA Attacker</title>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
-            font-family: monospace; 
+            font-family: 'Courier New', monospace; 
             text-align: center; 
             background: #040814; 
             color: white; 
@@ -15,19 +16,64 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 90vh;
-            margin: 0;
+            min-height: 100vh;
         }
         h1 {
             color: #ef4444;
-            letter-spacing: 2px;
-            margin-bottom: 40px;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+            font-size: 28px;
         }
+        .subtitle {
+            color: #6b7280;
+            font-size: 12px;
+            margin-bottom: 30px;
+            letter-spacing: 1px;
+        }
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 25px;
+            font-size: 13px;
+            color: #9ca3af;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #6b7280;
+            transition: background 0.3s;
+        }
+        .status-dot.online { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+        .status-dot.offline { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+        .status-dot.checking { background: #f59e0b; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        select {
+            width: 90%;
+            max-width: 400px;
+            padding: 14px 16px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            background: #111827;
+            color: #e5e7eb;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px;
+            margin-bottom: 20px;
+            appearance: none;
+            cursor: pointer;
+            text-align: center;
+        }
+        select:focus { outline: none; border-color: #ef4444; }
+
         .btn { 
-            padding: 25px 50px; 
-            font-size: 24px; 
+            padding: 22px 50px; 
+            font-size: 20px; 
             font-weight: bold; 
-            margin: 15px; 
+            font-family: 'Courier New', monospace;
+            margin: 8px; 
             border: none; 
             border-radius: 12px; 
             cursor: pointer; 
@@ -37,69 +83,99 @@
             letter-spacing: 2px;
             transition: transform 0.1s, opacity 0.2s;
         }
-        .btn:active {
-            transform: scale(0.95);
-        }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: scale(1);
-        }
+        .btn:active { transform: scale(0.95); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: scale(1); }
         .btn-launch { 
-            background-color: #ef4444; 
+            background: linear-gradient(135deg, #ef4444, #dc2626);
             color: white; 
-            box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.35);
         }
         .btn-stop { 
-            background-color: #374151; 
-            color: white; 
+            background: #1f2937;
+            color: #9ca3af;
+            border: 1px solid rgba(255,255,255,0.1);
         }
         .stats { 
-            margin-top: 40px; 
-            font-size: 20px; 
+            margin-top: 25px; 
+            font-size: 16px; 
             width: 90%;
             max-width: 400px;
         }
         .stat-box { 
-            background: rgba(255,255,255,0.05); 
-            padding: 20px; 
+            background: rgba(255,255,255,0.04); 
+            padding: 16px 20px; 
             border-radius: 10px; 
-            margin-bottom: 15px; 
-            border: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 10px; 
+            border: 1px solid rgba(255,255,255,0.08);
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
-        .stat-value {
-            color: #3edcff;
-            font-weight: bold;
+        .stat-label { color: #9ca3af; font-size: 13px; }
+        .stat-value { color: #3edcff; font-weight: bold; font-size: 18px; }
+
+        .log-area {
+            margin-top: 20px;
+            width: 90%;
+            max-width: 400px;
+            text-align: left;
+            font-size: 11px;
+            color: #6b7280;
+            max-height: 120px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
         }
+        .log-area .error { color: #ef4444; }
+        .log-area .success { color: #22c55e; }
+        .log-area .info { color: #3edcff; }
     </style>
 </head>
 <body>
-    <h1>ATTACK SIMULATOR</h1>
-    
-    <button id="launchBtn" class="btn btn-launch" onclick="startTraffic()">LAUNCH ATTACK</button>
+    <h1>⚡ ATTACK SIMULATOR</h1>
+    <p class="subtitle">DeviceDNA Red Team Console</p>
+
+    <div class="status-bar">
+        <div id="statusDot" class="status-dot checking"></div>
+        <span id="statusText">Checking backend...</span>
+    </div>
+
+    <select id="attackSelect">
+        <option value="1">1 — Stealth Recon Scan</option>
+        <option value="2" selected>2 — Botnet C2 + DDoS</option>
+        <option value="3">3 — Lateral Movement / Worm</option>
+        <option value="4">4 — Data Exfiltration</option>
+    </select>
+
+    <button id="launchBtn" class="btn btn-launch" onclick="startTraffic()" disabled>LAUNCH ATTACK</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stopTraffic()" disabled>STOP</button>
 
     <div class="stats">
         <div class="stat-box">
-            <span>TOTAL REQS:</span>
+            <span class="stat-label">TOTAL REQS</span>
             <span id="totalReqs" class="stat-value">0</span>
         </div>
         <div class="stat-box">
-            <span>REQS / SEC:</span>
+            <span class="stat-label">REQS / SEC</span>
             <span id="reqsPerSec" class="stat-value">0</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-label">ATTACK STATUS</span>
+            <span id="attackStatus" class="stat-value" style="color: #6b7280;">IDLE</span>
         </div>
     </div>
 
-    <div id="errorLog" style="color: red; margin-top: 20px; font-weight: bold; max-width: 400px; word-wrap: break-word;"></div>
+    <div id="logArea" class="log-area"></div>
 
     <script>
-        // Auto-detect server IP from the current page URL so this works from any device on the network.
-        // If opened as a local file (file://), fall back to localhost.
-        const PORT = "8000";
-        const SERVER_IP = window.location.protocol === 'file:' ? 'localhost' : window.location.hostname;
-        const BASE_URL = `http://${SERVER_IP}:${PORT}`;
+        // ── Backend Configuration ───────────────────────────────────────
+        // Hardcoded to the laptop's local Wi-Fi IP so this works from
+        // any device on the same network (phone, tablet, other laptops).
+        const BACKEND_IP = "10.68.59.223";
+        const BACKEND_PORT = "8000";
+        const BASE_URL = `http://${BACKEND_IP}:${BACKEND_PORT}`;
 
         let attackInterval;
         let rpsInterval;
@@ -107,83 +183,169 @@
         let requestsThisSecond = 0;
         let isRunning = false;
 
-        function sendRequest() {
-            if (!isRunning) return;
+        // ── Logging ─────────────────────────────────────────────────────
+        function log(msg, type = "info") {
+            const el = document.getElementById("logArea");
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
+            el.scrollTop = el.scrollHeight;
+        }
+
+        // ── Backend Health Check ────────────────────────────────────────
+        async function checkBackend() {
+            const dot = document.getElementById("statusDot");
+            const text = document.getElementById("statusText");
+            const launchBtn = document.getElementById("launchBtn");
             try {
-                // Just visual spam for the UI to show activity
-                fetch(`${BASE_URL}/api/health`, { mode: 'no-cors', cache: 'no-store' }).catch(e => {});
-                totalRequests += 2;
-                requestsThisSecond += 2;
-                document.getElementById('totalReqs').innerText = totalRequests;
+                const res = await fetch(`${BASE_URL}/api/health`, { cache: "no-store" });
+                if (res.ok) {
+                    const data = await res.json();
+                    dot.className = "status-dot online";
+                    text.textContent = `Backend online (${BACKEND_IP})`;
+                    launchBtn.disabled = false;
+                    log(`Connected to backend at ${BASE_URL}`, "success");
+
+                    // Also check if an attack is already running
+                    try {
+                        const statusRes = await fetch(`${BASE_URL}/api/attack/status`);
+                        const statusData = await statusRes.json();
+                        if (statusData.is_running) {
+                            document.getElementById("attackStatus").textContent = "ACTIVE";
+                            document.getElementById("attackStatus").style.color = "#ef4444";
+                            document.getElementById("launchBtn").disabled = true;
+                            document.getElementById("launchBtn").innerText = "⚡ ATTACKING...";
+                            document.getElementById("stopBtn").disabled = false;
+                            isRunning = true;
+                            log(`Attack #${statusData.attack_id} is already running`, "error");
+                        }
+                    } catch(e) { /* ignore */ }
+                } else {
+                    throw new Error(`HTTP ${res.status}`);
+                }
             } catch (err) {
-                // Ignore visual errors
+                dot.className = "status-dot offline";
+                text.textContent = "Backend unreachable";
+                launchBtn.disabled = true;
+                log(`Cannot reach backend: ${err.message}`, "error");
+                log(`Ensure Docker is running and backend is at ${BASE_URL}`, "error");
             }
         }
 
+        // ── Visual Traffic Spam ─────────────────────────────────────────
+        function sendVisualRequest() {
+            if (!isRunning) return;
+            fetch(`${BASE_URL}/api/health`, { cache: "no-store" })
+                .then(() => {
+                    totalRequests += 2;
+                    requestsThisSecond += 2;
+                    document.getElementById("totalReqs").innerText = totalRequests;
+                })
+                .catch(() => {
+                    // Still count for visual effect
+                    totalRequests += 1;
+                    requestsThisSecond += 1;
+                    document.getElementById("totalReqs").innerText = totalRequests;
+                });
+        }
+
+        // ── Start Attack ────────────────────────────────────────────────
         async function startTraffic() {
+            if (isRunning) return;
+
+            const attackId = parseInt(document.getElementById("attackSelect").value);
+            const launchBtn = document.getElementById("launchBtn");
+            const stopBtn = document.getElementById("stopBtn");
+            const statusEl = document.getElementById("attackStatus");
+
+            launchBtn.disabled = true;
+            launchBtn.innerText = "TRIGGERING...";
+            log(`Triggering attack #${attackId}...`, "info");
+
+            // Always stop any lingering backend attack first to avoid 409 conflicts
             try {
-                if (isRunning) return;
-                
-                document.getElementById('errorLog').innerText = ""; // Clear errors
-                document.getElementById('launchBtn').disabled = true;
-                document.getElementById('launchBtn').innerText = "ATTACKING...";
-                document.getElementById('stopBtn').disabled = false;
-                
-                // ACTUAL ATTACK TRIGGER: Tell the backend to infect the IoT nodes
-                try {
-                    await fetch(`${BASE_URL}/api/attack/trigger`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ attack_id: 2, duration: 300 }) // Stage 2 Botnet/DDoS attack
-                    });
-                } catch(e) {
-                    document.getElementById('errorLog').innerText = "Trigger Error: " + e.message;
+                await fetch(`${BASE_URL}/api/attack/stop`, { method: "POST" });
+                log("Cleared previous attack state", "info");
+                // Small delay to let the backend fully reset
+                await new Promise(r => setTimeout(r, 500));
+            } catch(e) { /* ignore */ }
+
+            // Trigger actual backend attack
+            try {
+                const res = await fetch(`${BASE_URL}/api/attack/trigger`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ attack_id: attackId, duration: 300 }),
+                });
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || `HTTP ${res.status}`);
                 }
+
+                const data = await res.json();
+                log(`✓ ${data.name} started on ${data.targets.length} targets`, "success");
+                log(`Targets: ${data.targets.join(", ")}`, "info");
+                log(`Duration: ${data.total_duration_seconds}s`, "info");
 
                 isRunning = true;
                 totalRequests = 0;
                 requestsThisSecond = 0;
-                document.getElementById('totalReqs').innerText = "0";
-                document.getElementById('reqsPerSec').innerText = "0";
-                
-                // Fire a burst every 50ms (non-blocking) for UI effect
-                attackInterval = setInterval(sendRequest, 50);
-                
+                document.getElementById("totalReqs").innerText = "0";
+                document.getElementById("reqsPerSec").innerText = "0";
+
+                launchBtn.innerText = "⚡ ATTACKING...";
+                stopBtn.disabled = false;
+                statusEl.textContent = `ATTACK #${attackId}`;
+                statusEl.style.color = "#ef4444";
+
+                // Fire visual spam every 50ms
+                attackInterval = setInterval(sendVisualRequest, 50);
+
+                // Update RPS counter every second
                 rpsInterval = setInterval(() => {
-                    document.getElementById('reqsPerSec').innerText = requestsThisSecond;
+                    document.getElementById("reqsPerSec").innerText = requestsThisSecond;
                     requestsThisSecond = 0;
                 }, 1000);
+
             } catch (err) {
-                document.getElementById('errorLog').innerText = "Start Error: " + err.message;
+                log(`✗ Trigger failed: ${err.message}`, "error");
+                launchBtn.disabled = false;
+                launchBtn.innerText = "LAUNCH ATTACK";
             }
         }
 
+        // ── Stop Attack ─────────────────────────────────────────────────
         async function stopTraffic() {
-            try {
-                if (!isRunning) return;
-                isRunning = false;
-                
-                // ACTUAL ATTACK STOP: Tell the backend to stop infecting nodes
-                try {
-                    await fetch(`${BASE_URL}/api/attack/stop`, {
-                        method: 'POST'
-                    });
-                } catch(e) {
-                    console.error("Stop Error:", e);
-                }
+            if (!isRunning) return;
+            isRunning = false;
 
-                clearInterval(attackInterval);
-                clearInterval(rpsInterval);
-                
-                document.getElementById('launchBtn').disabled = false;
-                document.getElementById('launchBtn').innerText = "LAUNCH ATTACK";
-                document.getElementById('stopBtn').disabled = true;
-                
-                document.getElementById('reqsPerSec').innerText = "0";
-            } catch (err) {
-                document.getElementById('errorLog').innerText = "Stop Error: " + err.message;
+            log("Stopping attack...", "info");
+
+            try {
+                const res = await fetch(`${BASE_URL}/api/attack/stop`, { method: "POST" });
+                if (res.ok) {
+                    const data = await res.json();
+                    log(`✓ Attack stopped. Cleared: ${data.cleared_devices.join(", ") || "none"}`, "success");
+                } else {
+                    log("Stop request returned non-OK status", "error");
+                }
+            } catch (e) {
+                log(`Stop error: ${e.message}`, "error");
             }
+
+            clearInterval(attackInterval);
+            clearInterval(rpsInterval);
+
+            document.getElementById("launchBtn").disabled = false;
+            document.getElementById("launchBtn").innerText = "LAUNCH ATTACK";
+            document.getElementById("stopBtn").disabled = true;
+            document.getElementById("reqsPerSec").innerText = "0";
+            document.getElementById("attackStatus").textContent = "IDLE";
+            document.getElementById("attackStatus").style.color = "#6b7280";
         }
+
+        // ── Initialize ──────────────────────────────────────────────────
+        checkBackend();
     </script>
 </body>
 </html>

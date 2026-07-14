@@ -33,7 +33,7 @@ function TrustHistoryChart({ deviceId }: { deviceId: string }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`http://localhost:8000/api/trust/${deviceId}/history?hours=24`)
+    fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/trust/${deviceId}/history?hours=24`)
       .then(res => res.json())
       .then((data: HistoryPoint[]) => {
         const mapped = data.map(p => ({
@@ -199,7 +199,7 @@ function ResponseStatusPanel({ deviceId }: { deviceId: string }) {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
   const fetchStatus = () => {
-    fetch(`http://localhost:8000/api/response/${deviceId}/status`)
+    fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/response/${deviceId}/status`)
       .then(res => res.json())
       .then(data => {
         setStatus(data);
@@ -218,7 +218,7 @@ function ResponseStatusPanel({ deviceId }: { deviceId: string }) {
   const handleIsolate = async () => {
     setIsIsolating(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/response/${deviceId}/isolate`, {
+      const res = await fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/response/${deviceId}/isolate`, {
         method: 'POST'
       });
       if (res.ok) {

@@ -126,13 +126,12 @@ DEVICE_PROFILES: Dict[str, Dict[str, Any]] = {
 def generate_fleet():
     fleet = []
     
-    # 1. Add 5 Physical Devices (Based on User's actual hardware)
+    # 1. Add 4 Physical Devices (ESP32s)
     physical_specs = [
-        ('dht11_sensor', 'DHT11 Temp/Humidity Sensor', 'sensor'),
-        ('mq135_sensor', 'MQ135 Gas/Air Quality Sensor', 'sensor'),
-        ('ir_sensor', 'IR Obstacle Sensor', 'access_control'),
-        ('ldr_sensor', 'LDR Light Sensor', 'sensor'),
-        ('esp8266_wifi', 'ESP8266 Generic WiFi Node', 'sensor')
+        ('smoke_sensor_1', 'Smoke Sensor 1', 'sensor'),
+        ('smoke_sensor_2', 'Smoke Sensor 2', 'sensor'),
+        ('gyro_sensor', 'Gyro Sensor', 'sensor'),
+        ('ldr_sensor', 'LDR Sensor', 'sensor')
     ]
     
     for dev_id, name, d_class in physical_specs:

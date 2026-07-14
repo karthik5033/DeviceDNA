@@ -307,7 +307,7 @@ class TrustScoreEngine:
             if raw_prev:
                 try:
                     prev_data = json.loads(raw_prev)
-                    prev_score = float(prev_data["score"])
+                    prev_score = float(prev_data.get("raw_score", prev_data["score"]))
                     # Asymmetric smoothing: drop fast (alpha=0.6), recover slow (alpha=0.1)
                     # This ensures anomalies trigger alerts immediately, but recovery is stable
                     alpha = 0.6 if final_trust_score < prev_score else 0.1
@@ -384,15 +384,12 @@ class TrustScoreEngine:
                 if effective_trust_score < 40:
                     alert_severity = "critical"
                     alert_msg = f"Device {device_id} trust score critically low ({effective_trust_score:.2f})."
-                    record_anomaly_event(device_id)
                 elif effective_trust_score < 60:
                     alert_severity = "high"
                     alert_msg = f"Device {device_id} trust score dropped to high risk ({effective_trust_score:.2f})."
-                    record_anomaly_event(device_id)
                 elif previous_score is not None and (previous_score - effective_trust_score) > 15:
                     alert_severity = "medium"
                     alert_msg = f"Device {device_id} trust score dropped sharply by {previous_score - effective_trust_score:.2f} points."
-                    record_anomaly_event(device_id)
 
                 if alert_severity:
                     # --- Issue 4: Alert deduplication guard (5-min cooldown per device+severity) ---
@@ -400,6 +397,11 @@ class TrustScoreEngine:
                     if redis_client.exists(dedup_key):
                         logger.debug(f"Alert suppressed (dedup cooldown active) for {device_id} [{alert_severity}]")
                     else:
+                        # Only record an anomaly event if the actual raw ML score is suspicious.
+                        # This prevents the decay multiplier from keeping itself artificially low!
+                        if final_trust_score < 70:
+                            record_anomaly_event(device_id)
+
                         # Set dedup key: 300s for critical/high, 120s for medium
                         dedup_ttl = 300 if alert_severity in ("critical", "high") else 120
                         redis_client.setex(dedup_key, dedup_ttl, "1")

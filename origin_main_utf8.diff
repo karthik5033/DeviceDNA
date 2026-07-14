@@ -1,0 +1,865 @@
+﻿diff --git a/backend/app/ml/gnn/scoring.py b/backend/app/ml/gnn/scoring.py
+index 331a0a7..d92bc80 100644
+--- a/backend/app/ml/gnn/scoring.py
++++ b/backend/app/ml/gnn/scoring.py
+@@ -7,24 +7,22 @@ Follows the same singleton pattern as LSTMScorer:
+ - Gracefully degrades if model files are missing
+ - Minimum-window guard (5 nodes) before scoring
+ 
+-The runtime graph is built incrementally as the trust engine evaluates devices,
+-with all state persisted in Redis to survive restarts.
++The runtime graph is built incrementally as the trust engine evaluates devices.
+ """
+ import os
+ import json
+ import logging
+-from app.core.config import MODELS_DIR
+ import torch
+ import torch.nn.functional as F
++import networkx as nx
+ from app.ml.gnn.model import GraphSAGENetwork
+-from app.db.redis import redis_client
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+ class GNNScorer:
+     def __init__(self):
+-        self.models_dir = MODELS_DIR
++        self.models_dir = "models_trained/"
+         self.model_path = os.path.join(self.models_dir, "gnn_shared.pt")
+         self.norm_path = os.path.join(self.models_dir, "gnn_shared_norm.json")
+         self.model = None
+@@ -33,6 +31,13 @@ class GNNScorer:
+         self.ranges = None
+         self.min_nodes = 5  # Minimum graph size before scoring
+ 
++        # Runtime communication graph ΓÇö nodes are device_ids, edges are observed communications
++        self.graph = nx.DiGraph()
++        # Track edge timestamps for dynamic edge expiration (5-minute sliding window)
++        self.edge_timestamps = {}
++        # Cache latest features per device for building the feature matrix
++        self.device_features: dict[str, list[float]] = {}
++
+         self._load_model()
+ 
+     def _load_model(self):
+@@ -69,21 +74,37 @@ class GNNScorer:
+             return (tensor - self.mins) / self.ranges
+         return tensor
+ 
+-    async def update_graph(self, src_device_id: str, dst_device_id: str):
++    def update_graph(self, src_device_id: str, dst_device_id: str):
+         """
+-        Register an observed communication edge in the runtime graph (Redis).
++        Register an observed communication edge in the runtime graph.
+         Called by the trust engine for each evaluation to build the live topology.
+         """
+         if src_device_id and dst_device_id and src_device_id != dst_device_id:
+-            await redis_client.sadd("gnn:nodes", src_device_id, dst_device_id)
+-            await redis_client.sadd("gnn:edges", f"{src_device_id}:{dst_device_id}")
+-
+-    async def update_features(self, device_id: str, features: list[float]):
+-        """Cache the latest 14D feature vector for a device in Redis."""
+-        await redis_client.sadd("gnn:nodes", device_id)
+-        await redis_client.setex(f"gnn:features:{device_id}", 86400, json.dumps(features))
+-
+-    async def score(self, device_id: str, current_features: list[float]) -> float:
++            import time
++            edge = (src_device_id, dst_device_id)
++            self.graph.add_edge(src_device_id, dst_device_id)
++            self.edge_timestamps[edge] = time.time()
++
++    def prune_expired_edges(self):
++        """Prune edges older than 5 minutes (300 seconds) from the graph."""
++        import time
++        now = time.time()
++        expired = [edge for edge, ts in self.edge_timestamps.items() if now - ts > 300]
++        for edge in expired:
++            src, dst = edge
++            if self.graph.has_edge(src, dst):
++                self.graph.remove_edge(src, dst)
++            if edge in self.edge_timestamps:
++                del self.edge_timestamps[edge]
++
++    def update_features(self, device_id: str, features: list[float]):
++        """Cache the latest 14D feature vector for a device."""
++        self.device_features[device_id] = features
++        # Ensure the node exists in the graph even if no edges yet
++        if not self.graph.has_node(device_id):
++            self.graph.add_node(device_id)
++
++    def score(self, device_id: str, current_features: list[float]) -> float:
+         """
+         Score a device's anomaly probability using the GraphSAGE model.
+         
+@@ -93,49 +114,41 @@ class GNNScorer:
+         if self.model is None:
+             return 0.0
+ 
+-        # Update this device's features in the cache
+-        await self.update_features(device_id, current_features)
++        # Prune GNN edges older than 5 minutes
++        self.prune_expired_edges()
+ 
+-        # Pull graph data from Redis
+-        nodes_raw = await redis_client.smembers("gnn:nodes")
+-        node_list = [n.decode('utf-8') if isinstance(n, bytes) else str(n) for n in nodes_raw]
++        # Update this device's features in the cache
++        self.update_features(device_id, current_features)
+ 
+         # Minimum window guard ΓÇö need enough graph context
+-        if len(node_list) < self.min_nodes or device_id not in node_list:
++        if self.graph.number_of_nodes() < self.min_nodes:
++            return 0.0
++
++        # Build node ordering: device_id ΓåÆ index
++        node_list = list(self.graph.nodes())
++        if device_id not in node_list:
+             return 0.0
+ 
+         node_to_idx = {nid: i for i, nid in enumerate(node_list)}
+         target_idx = node_to_idx[device_id]
+ 
+-        # Build feature matrix
++        # Build feature matrix ΓÇö use cached features, or zeros for nodes with no features yet
+         n_nodes = len(node_list)
+         feat_matrix = torch.zeros(n_nodes, 14)
+-        
+-        # Pull all features from Redis efficiently
+-        keys = [f"gnn:features:{nid}" for nid in node_list]
+-        feats_json = await redis_client.mget(keys)
+-        
+-        for i, f_str in enumerate(feats_json):
+-            if f_str:
+-                f_data = f_str.decode('utf-8') if isinstance(f_str, bytes) else f_str
+-                feat_matrix[i] = torch.FloatTensor(json.loads(f_data))
++        for i, nid in enumerate(node_list):
++            if nid in self.device_features:
++                feat_matrix[i] = torch.FloatTensor(self.device_features[nid])
+ 
+         # Normalize features
+         feat_matrix = self._normalize(feat_matrix)
+ 
+-        # Build edge_index from Redis (bidirectional)
+-        edges_raw = await redis_client.smembers("gnn:edges")
++        # Build edge_index from networkx graph (bidirectional)
+         edges = []
+-        for edge_raw in edges_raw:
+-            edge_str = edge_raw.decode('utf-8') if isinstance(edge_raw, bytes) else str(edge_raw)
+-            try:
+-                src, dst = edge_str.split(':')
+-                if src in node_to_idx and dst in node_to_idx:
+-                    src_idx, dst_idx = node_to_idx[src], node_to_idx[dst]
+-                    edges.append((src_idx, dst_idx))
+-                    edges.append((dst_idx, src_idx))  # Bidirectional
+-            except ValueError:
+-                continue
++        for src, dst in self.graph.edges():
++            if src in node_to_idx and dst in node_to_idx:
++                src_idx, dst_idx = node_to_idx[src], node_to_idx[dst]
++                edges.append((src_idx, dst_idx))
++                edges.append((dst_idx, src_idx))  # Bidirectional
+ 
+         # Deduplicate
+         edges = list(set(edges))
+@@ -154,5 +167,6 @@ class GNNScorer:
+             anomaly_score = probs[target_idx, 1].item()
+             return max(0.0, min(1.0, anomaly_score))
+ 
++
+ # Singleton scorer instance
+ gnn_scorer = GNNScorer()
+diff --git a/backend/app/services/telemetry.py b/backend/app/services/telemetry.py
+index 79ab2f4..d45c549 100644
+--- a/backend/app/services/telemetry.py
++++ b/backend/app/services/telemetry.py
+@@ -4,20 +4,40 @@ import logging
+ import math
+ import time
+ import traceback
+-from datetime import datetime, timezone
++from datetime import datetime
+ from aiokafka import AIOKafkaConsumer
+-from aiokafka.errors import KafkaError
+ from app.api.ws import sio
+ from app.services.feature_extraction import extract_features
+ from app.services.trust_engine import master_trust_engine
+ from app.services.hardware_registry import mark_seen
+ from app.ml.gnn.scoring import gnn_scorer
+ from app.db.redis import redis_client
+-from app.core.device_profiles import FLEET
+-from app.core.utils import utcnow_iso
++from simulator.device_profiles import FLEET
+ 
+ IP_TO_DEVICE_ID = {d['ip_address']: d['id'] for d in FLEET}
+ 
++def get_device_id_by_ip(ip: str) -> str:
++    if not ip:
++        return None
++    static_id = IP_TO_DEVICE_ID.get(ip)
++    if static_id:
++        return static_id
++        
++    try:
++        # Check Redis for dynamically learned physical device IPs
++        for d in FLEET:
++            if d.get('is_physical') or d['id'] in ["gateway_01", "sensor_01", "motion_01", "cam_01", "cam_02"]:
++                dev_id = d['id']
++                stored_ip = redis_client.get(f"physical_ip:{dev_id}")
++                if stored_ip:
++                    if isinstance(stored_ip, bytes):
++                        stored_ip = stored_ip.decode('utf-8')
++                    if stored_ip == ip:
++                        return dev_id
++    except Exception:
++        pass
++    return None
++
+ logger = logging.getLogger(__name__)
+ 
+ import os
+@@ -25,14 +45,14 @@ KAFKA_BROKER = os.getenv("KAFKA_BROKER", "localhost:29092")
+ RAW_TOPIC = "raw-flows"
+ 
+ # Minimum seconds between trust evaluations per device (time-based fallback)
+-MIN_EVAL_INTERVAL_SECS = 300  # 5 minutes
++MIN_EVAL_INTERVAL_SECS = 60
+ 
+ # How many historical scores to use for baseline computation (sliding window)
+ BASELINE_HISTORY_KEY = "baseline:{device_id}"
+ BASELINE_WINDOW = 20  # last 20 readings
+ 
+ 
+-async def _compute_baseline_stats(device_id: str) -> dict:
++def _compute_baseline_stats(device_id: str) -> dict:
+     """
+     Reads the last BASELINE_WINDOW feature snapshots stored in Redis for this device
+     and computes mean/std for the three CUSUM-monitored features.
+@@ -40,7 +60,7 @@ async def _compute_baseline_stats(device_id: str) -> dict:
+     If insufficient history, returns sensible defaults so CUSUM still runs.
+     """
+     key = f"baseline:{device_id}"
+-    raw_entries = await redis_client.lrange(key, 0, BASELINE_WINDOW - 1)
++    raw_entries = redis_client.lrange(key, 0, BASELINE_WINDOW - 1)
+ 
+     parsed = []
+     for entry in raw_entries:
+@@ -72,7 +92,7 @@ async def _compute_baseline_stats(device_id: str) -> dict:
+     return stats
+ 
+ 
+-async def _store_feature_snapshot(device_id: str, features_obj) -> None:
++def _store_feature_snapshot(device_id: str, features_obj) -> None:
+     """
+     Push a compact feature snapshot into the per-device Redis list
+     used for baseline computation. Caps list length at BASELINE_WINDOW.
+@@ -84,9 +104,9 @@ async def _store_feature_snapshot(device_id: str, features_obj) -> None:
+             "avg_packet_size": float(features_obj.avg_packet_size),
+             "external_traffic_ratio": float(features_obj.external_traffic_ratio),
+         }
+-        await redis_client.lpush(key, json.dumps(snapshot))
+-        await redis_client.ltrim(key, 0, BASELINE_WINDOW - 1)
+-        await redis_client.expire(key, 86400)  # 24h TTL
++        redis_client.lpush(key, json.dumps(snapshot))
++        redis_client.ltrim(key, 0, BASELINE_WINDOW - 1)
++        redis_client.expire(key, 86400)  # 24h TTL
+     except Exception as e:
+         logger.warning(f"Failed to store feature snapshot for baseline [{device_id}]: {e}")
+ 
+@@ -94,25 +114,13 @@ class TelemetryService:
+     """
+     Consumes raw flows from Kafka, normalizes them, and writes to InfluxDB.
+     Runs continuously in the background of the FastAPI app.
+-    
+-    Features:
+-    - Per-device flow windowing (5-minute rolling aggregation)
+-    - Graceful Kafka reconnection with exponential backoff
+     """
+     def __init__(self, influx_client):
+         self.influx_client = influx_client
+         self.consumer = None
+-        self.flow_counts = {}
++        self.flow_count = 0
++        # Issue 3: track last trust evaluation timestamp per device
+         self._last_eval_time: dict[str, float] = {}
+-        
+-        # Issue 2: Per-device flow buffering for 5-minute window aggregation
+-        self.flow_buffers: dict[str, list] = {}
+-        self.window_start_times: dict[str, float] = {}
+-        
+-        # Issue 3: Kafka reconnection state
+-        self._reconnect_backoff = 5  # Starting backoff: 5 seconds
+-        self._max_reconnect_backoff = 60  # Max backoff: 60 seconds
+-        self._consume_task = None
+ 
+     async def start(self):
+         # Graceful handling if Kafka is not yet up in Docker
+@@ -126,81 +134,29 @@ class TelemetryService:
+             )
+             await self.consumer.start()
+             logger.info(f"TelemetryService: Listening to {RAW_TOPIC} on {KAFKA_BROKER}")
+-            
+-            # Issue 3: Start consume loop with reconnection handling
+-            self._consume_task = asyncio.create_task(self._consume_with_reconnect())
++            task = asyncio.create_task(self._consume())
+             
+             def _handle_task_result(t):
+                 try:
+                     t.result()
+                 except Exception as ex:
+-                    logger.error(f"Consume task crashed unhandled:\n{traceback.format_exc()}")
++                    import traceback
++                    logger.error(f"Task crashed unhandled:\n{traceback.format_exc()}")
+                     
+-            self._consume_task.add_done_callback(_handle_task_result)
++            task.add_done_callback(_handle_task_result)
+         except Exception as e:
+             logger.error(f"Kafka connection failed (Will not stream telemetry): {e}")
+ 
+-    async def _consume_with_reconnect(self):
+-        """
+-        Issue 3: Wraps the consume loop with graceful reconnection.
+-        On connection loss, exponentially backs off and retries.
+-        """
+-        while True:
+-            try:
+-                await self._consume()
+-            except (KafkaError, ConnectionError, OSError) as e:
+-                logger.warning(
+-                    f"Kafka connection lost: {e}. "
+-                    f"Reconnecting in {self._reconnect_backoff}s..."
+-                )
+-                await asyncio.sleep(self._reconnect_backoff)
+-                
+-                # Increase backoff for next attempt, capped at max
+-                self._reconnect_backoff = min(
+-                    self._reconnect_backoff * 2,
+-                    self._max_reconnect_backoff
+-                )
+-                
+-                # Attempt to reconnect
+-                try:
+-                    if self.consumer:
+-                        await self.consumer.stop()
+-                    self.consumer = AIOKafkaConsumer(
+-                        RAW_TOPIC,
+-                        bootstrap_servers=KAFKA_BROKER,
+-                        group_id="backend_telemetry_2",
+-                        auto_offset_reset="latest",
+-                        value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+-                    )
+-                    await self.consumer.start()
+-                    # Reset backoff on successful reconnection
+-                    self._reconnect_backoff = 5
+-                    logger.info(f"Kafka reconnected successfully to {KAFKA_BROKER}")
+-                except Exception as reconnect_err:
+-                    logger.error(f"Reconnection attempt failed: {reconnect_err}")
+-                    # Continue looping to retry
+-                    continue
+-            except Exception as e:
+-                logger.error(f"Unexpected error in consume loop: {traceback.format_exc()}")
+-                await asyncio.sleep(5)
+-
+     async def _consume(self):
+-        """
+-        Issue 3: Consume flows from Kafka with no internal reconnection.
+-        External wrapper _consume_with_reconnect() handles reconnection.
+-        """
+         try:
+             async for msg in self.consumer:
+                 flow = msg.value
+                 await self._process_flow(flow)
+-                # Yield control to the event loop
++                # Yield control to the event loop so FastAPI can handle HTTP requests
+                 await asyncio.sleep(0)
+-        except asyncio.CancelledError:
+-            logger.info("Consume loop cancelled")
+-            raise
+         except Exception as e:
+-            logger.error(f"Consume error: {e}")
+-            raise
++            import traceback
++            logger.error(f"Consume crash: {traceback.format_exc()}")
+ 
+     async def _process_flow(self, flow):
+         try:
+@@ -209,12 +165,24 @@ class TelemetryService:
+             
+             # Register device as online
+             if device_id:
++                # We offload it or await it directly
++                # It does an async redis set, so awaiting is fine
+                 await mark_seen(device_id, device_class)
+                 
+-            is_anom = flow.get('is_anomaly') or flow.get('is_anomalous') or False
+-            if is_anom:
+-                master_trust_engine.register_active_attack(device_id, flow.get('attack_type'))
+-
++            # Policy checks on raw flow (e.g., checking if destination IP matches blocklists)
++            is_policy_violation = "policy_violation" in str(flow).lower()
++            if is_policy_violation:
++                await sio.emit('new_alert', {
++                    'id': flow.get('flow_id', 'ALT-LIVE'),
++                    'device': flow.get('device_id', 'Unknown'),
++                    'severity': 'critical',
++                    'type': 'policy_violation',
++                    'message': f"Live Policy Violation: unauthorized connection attempt to {flow.get('dst_ip')}",
++                    'score': 25.0,
++                    'time': 'Just now',
++                    'model': 'Live Kafka Stream'
++                })
++                
+             if 'src_ip' in flow:
+                 src_ip = flow.get('src_ip')
+                 dst_ip = flow.get('dst_ip')
+@@ -227,67 +195,34 @@ class TelemetryService:
+                 })
+                 
+                 # Build real GNN edges based on observed communication
+-                src_id = flow.get('device_id') or IP_TO_DEVICE_ID.get(src_ip)
+-                dst_id = IP_TO_DEVICE_ID.get(dst_ip)
++                src_id = flow.get('device_id') or get_device_id_by_ip(src_ip)
++                dst_id = get_device_id_by_ip(dst_ip)
+                 if src_id and dst_id:
+-                    await gnn_scorer.update_graph(src_id, dst_id)
++                    gnn_scorer.update_graph(src_id, dst_id)
+ 
++            self.flow_count += 1
+             device_id = flow.get('device_id', 'unknown')
+-            self.flow_counts[device_id] = self.flow_counts.get(device_id, 0) + 1
+ 
+-            # ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+-            # Issue 2: Implement 5-minute flow windowing for feature aggregation
+-            # ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+-            
++            # Issue 3: evaluate on every 10th flow OR if ΓëÑ60s have passed since last eval
+             now = time.time()
+-            
+-            # Initialize buffer and window for new devices
+-            if device_id not in self.flow_buffers:
+-                self.flow_buffers[device_id] = []
+-                self.window_start_times[device_id] = now
+-            
+-            # Add flow to the per-device buffer
+-            self.flow_buffers[device_id].append(flow)
+-            
+-            # Check if it's time to evaluate (60+ seconds have passed)
+-            window_duration = now - self.window_start_times[device_id]
+             last_eval = self._last_eval_time.get(device_id, 0.0)
+-            time_since_eval = now - last_eval
+-            
+-            # Evaluate if:
+-            # 1. Window >= 60 seconds old, OR
+-            # 2. Anomaly detected (urgent), OR  
+-            # 3. 10th flow in current eval cycle (keeps responsiveness)
+-            should_evaluate = (
+-                window_duration >= MIN_EVAL_INTERVAL_SECS or
+-                is_anom or
+-                (self.flow_counts[device_id] % 10 == 0 and time_since_eval >= 5)
+-            )
+-            
+-            if not should_evaluate:
++            time_elapsed = (now - last_eval) >= MIN_EVAL_INTERVAL_SECS
++            flow_threshold = (self.flow_count % 10 == 0)
++
++            if not flow_threshold and not time_elapsed and not is_policy_violation:
+                 return
+-            
+-            # ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+-            # Evaluate with full buffered flow window (not single flow)
+-            # ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+-            
++
+             self._last_eval_time[device_id] = now
+-            
+-            # Pass the full buffer to extract_features (not [flow])
+-            buffered_flows = self.flow_buffers[device_id]
++
+             features = extract_features(
+                 device_id,
+                 flow.get('device_class', 'unknown'),
+-                buffered_flows  # Issue 2: Pass full window instead of [flow]
++                [flow]
+             )
+-            
+-            # Clear buffer and reset window for next cycle
+-            self.flow_buffers[device_id] = []
+-            self.window_start_times[device_id] = now
+ 
+-            # Store snapshot and compute baseline stats for CUSUM
+-            await _store_feature_snapshot(device_id, features)
+-            baseline_stats = await _compute_baseline_stats(device_id)
++            # Issue 1: store snapshot and compute real baseline stats for CUSUM
++            _store_feature_snapshot(device_id, features)
++            baseline_stats = _compute_baseline_stats(device_id)
+ 
+             trust_score = await master_trust_engine.evaluate_device(
+                 device_id,
+@@ -298,41 +233,20 @@ class TelemetryService:
+             
+             final_score_value = float(trust_score.get('trust_score', 0.0)) if isinstance(trust_score, dict) else float(trust_score)
+             
+-            if is_anom or "policy_violation" in str(flow).lower():
+-                await sio.emit('new_alert', {
+-                    'id': flow.get('flow_id', 'ALT-LIVE'),
+-                    'device': flow.get('device_id', 'Unknown'),
+-                    'severity': 'critical',
+-                    'type': flow.get('attack_type', 'Suspicious Activity'),
+-                    'message': f"Live Anomaly Trigger: {flow.get('attack_type')} detected hitting {flow.get('dst_ip')}",
+-                    'score': final_score_value,
+-                    'time': 'Just now',
+-                    'model': 'Live Kafka Stream'
+-                })
+-            
+             payload = {
+                 'device_id': device_id,
+                 'score': final_score_value,
+-                'timestamp': utcnow_iso()
++                'timestamp': datetime.utcnow().isoformat()
+             }
++            # Only log every 100th flow to avoid spamming the console
++            # logger.info(f"EMITTING PAYLOAD: {payload}")
+             
+             await sio.emit('trust_update', payload)
+         except Exception as e:
+-            logger.error(f"Process flow error: {traceback.format_exc()}")
++            import traceback
++            logger.error(f"Process crash: {traceback.format_exc()}")
+ 
+     async def stop(self):
+-        """Clean shutdown of telemetry service and consumer."""
+-        if self._consume_task:
+-            self._consume_task.cancel()
+-            try:
+-                await self._consume_task
+-            except asyncio.CancelledError:
+-                logger.info("Consume task cancelled")
+-        
+         if self.consumer:
+             logger.info("Stopping TelemetryService...")
+             await self.consumer.stop()
+-        
+-        # Clear buffers
+-        self.flow_buffers.clear()
+-        self.window_start_times.clear()
+diff --git a/backend/app/services/trust_engine.py b/backend/app/services/trust_engine.py
+index 0d15103..9382f64 100644
+--- a/backend/app/services/trust_engine.py
++++ b/backend/app/services/trust_engine.py
+@@ -1,6 +1,6 @@
+ import logging
+ import json
+-from datetime import datetime, timezone
++from datetime import datetime
+ from app.ml.gmvae.scoring import gmvae_scorer
+ from app.ml.isolation_forest.model import if_scorer
+ from app.ml.lstm.scoring import lstm_scorer
+@@ -15,8 +15,7 @@ from app.db.postgres import AsyncSessionLocal
+ from app.db.models import Alert
+ from app.api.ws import sio
+ from app.ml.explainability.tib_generator import generate_tib
+-from app.core.device_profiles import FLEET
+-from app.core.utils import utcnow_iso
++from simulator.device_profiles import FLEET
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -30,32 +29,34 @@ for d in FLEET:
+ 
+ CLASS_POLICY_RULES = {
+     'camera': [
+-        (13, '<', 0.6),    # external_traffic_ratio < 0.6
+-        (1, '<', 1000000)  # total_bytes < 1000000
++        (8, '<', 0.6),    # ext_int_ratio < 0.6
++        (9, '<', 200),   # active_hours_bitmap < 200
++        (0, '<', 100000)  # bytes_sent < 100000
+     ],
+     'sensor': [
+-        (11, '<', 5),      # unique_dst_ips < 5
+-        (1, '<', 50000),   # total_bytes < 50000
+-        (13, '<', 0.05)    # external_traffic_ratio < 0.05
++        (5, '<', 5),      # unique_dst_ips < 5
++        (0, '<', 50000),   # bytes_sent < 50000
++        (8, '<', 0.05)    # ext_int_ratio < 0.05
+     ],
+     'thermostat': [
+-        (1, '<', 75000),  # total_bytes < 75000
+-        (13, '<', 0.4),    # external_traffic_ratio < 0.4
+-        (11, '<', 5)       # unique_dst_ips < 5
++        (0, '<', 75000),  # bytes_sent < 75000
++        (8, '<', 0.4),    # ext_int_ratio < 0.4
++        (5, '<', 5)       # unique_dst_ips < 5
+     ],
+     'access_control': [
+-        (1, '<', 150000), # total_bytes < 150000
+-        (13, '<', 0.2),     # external_traffic_ratio < 0.2
+-        (12, '<', 10)      # unique_dst_ports < 10
++        (0, '<', 150000), # bytes_sent < 150000
++        (8, '<', 0.2),     # ext_int_ratio < 0.2
++        (6, '<', 10)      # unique_dst_ports < 10
+     ],
+     'medical': [
+-        (13, '<', 0.3),     # external_traffic_ratio < 0.3
+-        (11, '<', 10)      # unique_dst_ips < 10
++        (8, '<', 0.3),     # ext_int_ratio < 0.3
++        (12, '<', 0.5),    # burst_freq < 0.5
++        (5, '<', 10)      # unique_dst_ips < 10
+     ],
+     'industrial': [
+-        (13, '<', 0.1),     # external_traffic_ratio < 0.1
+-        (1, '<', 100000),  # total_bytes < 100000
+-        (11, '<', 5)       # unique_dst_ips < 5
++        (8, '<', 0.1),     # ext_int_ratio < 0.1
++        (0, '<', 100000),  # bytes_sent < 100000
++        (5, '<', 5)       # unique_dst_ips < 5
+     ]
+ }
+ 
+@@ -63,7 +64,12 @@ import re
+ from sqlalchemy import select
+ from app.db.models import PolicyRule
+ 
+-from app.schemas.features import FEATURE_NAMES
++FEATURE_NAMES = [
++    "bytes_sent", "bytes_recv", "packet_count", "bytes_per_packet", 
++    "upload_download_ratio", "unique_dst_ips", "unique_dst_ports", 
++    "unique_src_ports", "ext_int_ratio", "active_hours_bitmap", 
++    "inter_arrival_mean", "inter_arrival_var", "burst_freq", "protocol_entropy"
++]
+ 
+ async def evaluate_policy_score(device_class: str, current_features: list[float]) -> float:
+     """
+@@ -165,23 +171,10 @@ class TrustScoreEngine:
+             'policy_conformance': 0.15, # Hard rules (NLP or Static)
+             'peer_comparison': 0.05    # High-Dimensional DNA class distance
+         }
++        # In-memory history buffer for sequence models like LSTM
++        self.device_history = {}
+         # Track recently evaluated devices for GNN co-evaluation proximity edges
+         self._recent_eval_window: list[str] = []
+-        # Dynamic active attacks tracking
+-        self.active_attacks = {}
+-
+-    def register_active_attack(self, device_id: str, attack_type: str):
+-        self.active_attacks[device_id] = {
+-            "type": attack_type,
+-            "timestamp": datetime.now(timezone.utc)
+-        }
+-        
+-    def check_active_attack(self, device_id: str) -> str:
+-        if device_id in self.active_attacks:
+-            data = self.active_attacks[device_id]
+-            if (datetime.now(timezone.utc) - data["timestamp"]).total_seconds() < 15:
+-                return data["type"]
+-        return None
+ 
+     async def evaluate_device(self, device_id: str, device_class: str, current_features: list[float], baseline_stats: dict) -> dict:
+         """
+@@ -189,37 +182,62 @@ class TrustScoreEngine:
+         Requires the immediate 5-min feature snapshot, and the long-term static means/stds.
+         """
+         try:
+-            attack_type = self.check_active_attack(device_id)
+-
+-            # 1. GMVAE Hierarchical Digital Twin (0 -> 1.0) - ASYNC
+-            vae_dev = await gmvae_scorer.score_deviation(device_id, device_class, current_features)
++            # Mathematical features mapping:
++            # bytes_sent = current_features[0], bytes_recv = current_features[1], packet_count = current_features[2]
++            # unique_dst_ips = current_features[5], unique_dst_ports = current_features[6]
++            # ext_int_ratio = current_features[8], protocol_entropy = current_features[13]
++            is_recon_like = False
++            is_beacon_like = False
++            is_lateral_like = False
++            is_exfil_like = False
++
++            if current_features and len(current_features) >= 14:
++                # 1. Stealth Recon scan footprint (low byte-per-packet ratio, high unique ports/IPs)
++                if current_features[6] > 10 or (current_features[2] > 50 and current_features[0] / max(1.0, current_features[2]) < 100):
++                    is_recon_like = True
++                
++                # 2. Beaconing footprint (periodic sequence connection to a single external IP)
++                if current_features[5] == 1 and current_features[8] > 0.8:
++                    is_beacon_like = True
++                    
++                # 3. Lateral movement footprint (cross-class or high volume of internal IP peer queries)
++                if current_features[5] > 2 and current_features[8] < 0.1:
++                    is_lateral_like = True
++
++                # 4. Exfiltration footprint (upload volume significantly exceeds normal levels)
++                if current_features[0] > 150000:
++                    is_exfil_like = True
++
++            # 1. GMVAE Hierarchical Digital Twin (0 -> 1.0)
++            vae_dev = gmvae_scorer.score_deviation(device_id, device_class, current_features)
++            if (vae_dev == 0.0 or gmvae_scorer.global_model is None) and (is_recon_like or is_beacon_like or is_lateral_like or is_exfil_like):
++                vae_dev = 0.85
+             
+-            # 2. Isolation Forest (0 -> 1.0) - SYNC
++            # 2. Isolation Forest (0 -> 1.0)
+             if_anomaly = if_scorer.score_anomaly(device_class, current_features)
++            if (if_anomaly == 0.0 or not if_scorer.models) and (is_recon_like or is_beacon_like or is_exfil_like):
++                if_anomaly = 0.90
+             
+-            # 3. CUSUM Drift Tracking (0 -> 1.0) - ASYNC
+-            drift_score = await cusum_engine.detect_drift(device_id, self._dict_features(current_features), baseline_stats)
+-            if drift_score is None:
+-                drift_score = 0.0
++            # 3. CUSUM Drift Tracking (0 -> 1.0)
++            drift_score = cusum_engine.detect_drift(device_id, self._dict_features(current_features), baseline_stats)
++            if (drift_score == 0.0 or drift_score is None) and is_exfil_like:
++                drift_score = 0.85
+                 
+             # Update sequence history for LSTM
+-            history_key = f"trust:history:lstm:{device_id}"
+-            await redis_client.rpush(history_key, json.dumps(current_features))
+-            await redis_client.ltrim(history_key, -12, -1)
+-            
+-            history_raw = await redis_client.lrange(history_key, 0, -1)
+-            history = [json.loads(h.decode('utf-8') if isinstance(h, bytes) else h) for h in history_raw]
++            if device_id not in self.device_history:
++                self.device_history[device_id] = []
++            self.device_history[device_id].append(current_features)
++            if len(self.device_history[device_id]) > 12:
++                self.device_history[device_id].pop(0)
+                 
+-            # 4. LSTM Sequence Prediction (0 -> 1.0) - SYNC
+-            lstm_anomaly = lstm_scorer.score(device_id, history)
+-
+-            # 5. GNN Graph Anomaly Detection (0 -> 1.0) - ASYNC
+-            gnn_anomaly = await gnn_scorer.score(device_id, current_features)
+-
+-            # Attack simulation fallback logic
+-            if (lstm_anomaly == 0.0 or lstm_scorer.model is None) and attack_type:
++            # 4. LSTM Sequence Prediction (0 -> 1.0)
++            lstm_anomaly = lstm_scorer.score(device_id, self.device_history[device_id])
++            if (lstm_anomaly == 0.0 or lstm_scorer.model is None) and is_beacon_like:
+                 lstm_anomaly = 0.80
+-            if (gnn_anomaly == 0.0 or gnn_scorer.model is None) and attack_type:
++
++            # 5. GNN Graph Anomaly Detection (0 -> 1.0)
++            gnn_anomaly = gnn_scorer.score(device_id, current_features)
++            if (gnn_anomaly == 0.0 or gnn_scorer.model is None) and is_lateral_like:
+                 gnn_anomaly = 0.75
+ 
+             # Combine the structural algorithms into the ensemble pillar
+@@ -245,7 +263,7 @@ class TrustScoreEngine:
+             for pid in peer_ids:
+                 if pid == device_id:
+                     continue
+-                raw_data = await redis_client.get(f"trust:{pid}")
++                raw_data = redis_client.get(f"trust:{pid}")
+                 if raw_data:
+                     try:
+                         score_data = json.loads(raw_data)
+@@ -273,19 +291,15 @@ class TrustScoreEngine:
+                 (peer_penalty * self.weights['peer_comparison'])
+             )
+ 
+-            # Apply a quadratic curve to the penalty to denoise baseline model drift
+-            # Normal traffic (penalty ~0.4) will be suppressed, while real attacks (~0.8) are amplified
+-            adjusted_penalty = penalty_percentage ** 2.0
+-
+             # Scale penalty from 0.0-1.0 into absolute trust 100-0 drop
+-            final_trust_score = max(0.0, min(100.0, 100.0 - (adjusted_penalty * 100)))
++            final_trust_score = max(0.0, min(100.0, 100.0 - (penalty_percentage * 100)))
+             
+             # Smooth out real-time jitter using Exponential Moving Average (EMA)
+-            raw_prev = await redis_client.get(f"trust:{device_id}")
++            raw_prev = redis_client.get(f"trust:{device_id}")
+             if raw_prev:
+                 try:
+                     prev_data = json.loads(raw_prev)
+-                    prev_score = float(prev_data.get("raw_score", prev_data["score"]))
++                    prev_score = float(prev_data["score"])
+                     # Asymmetric smoothing: drop fast (alpha=0.6), recover slow (alpha=0.1)
+                     # This ensures anomalies trigger alerts immediately, but recovery is stable
+                     alpha = 0.6 if final_trust_score < prev_score else 0.1
+@@ -294,7 +308,7 @@ class TrustScoreEngine:
+                     pass
+             
+             # Calculate decay and effective trust score
+-            decay_multiplier = await get_decay_multiplier(device_id)
++            decay_multiplier = get_decay_multiplier(device_id)
+             effective_trust_score = final_trust_score * decay_multiplier
+ 
+             log_msg = f"Trust Computed - Device: {device_id} | VAE: {vae_dev:.4f} | IF: {if_anomaly:.4f} | LSTM: {lstm_anomaly:.4f} | GNN: {gnn_anomaly:.4f} | Penalty: {penalty_percentage:.4f} | Raw: {final_trust_score:.2f} | Decayed: {effective_trust_score:.2f}"
+@@ -329,7 +343,7 @@ class TrustScoreEngine:
+             }
+             
+             try:
+-                previous_redis_data = await redis_client.get(f"trust:{device_id}")
++                previous_redis_data = redis_client.get(f"trust:{device_id}")
+                 previous_score = None
+                 if previous_redis_data:
+                     previous_score = json.loads(previous_redis_data).get("score")
+@@ -340,7 +354,7 @@ class TrustScoreEngine:
+                     "decay_multiplier": float(decay_multiplier),
+                     "device_id": device_id,
+                     "device_class": device_class,
+-                    "timestamp": utcnow_iso(),
++                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                     "vae_score": float(vae_dev),
+                     "if_score": float(if_anomaly),
+                     "lstm_score": float(lstm_anomaly),
+@@ -350,7 +364,7 @@ class TrustScoreEngine:
+                     "peer_penalty": float(peer_penalty),
+                     "penalty": float(penalty_percentage)
+                 }
+-                await redis_client.setex(f"trust:{device_id}", 3600, json.dumps(redis_data))
++                redis_client.setex(f"trust:{device_id}", 3600, json.dumps(redis_data))
+                 
+                 # Persist this score to InfluxDB
+                 try:
+@@ -361,29 +375,28 @@ class TrustScoreEngine:
+                 # --- Alert Generation Logic & Decay Anomaly Registration ---
+                 alert_severity = None
+                 alert_msg = None
+-                
+-                # Use raw final_trust_score to prevent decay-induced death spirals
+-                if final_trust_score < 40 and (previous_score is None or previous_score >= 40):
++                if effective_trust_score < 40:
+                     alert_severity = "critical"
+-                    alert_msg = f"Device {device_id} raw trust score critically low ({final_trust_score:.2f})."
+-                    await record_anomaly_event(device_id)
+-                elif final_trust_score < 60 and (previous_score is None or previous_score >= 60):
++                    alert_msg = f"Device {device_id} trust score critically low ({effective_trust_score:.2f})."
++                    record_anomaly_event(device_id)
++                elif effective_trust_score < 60:
+                     alert_severity = "high"
+-                    alert_msg = f"Device {device_id} raw trust score dropped to high risk ({final_trust_score:.2f})."
+-                    # Only record anomaly on critical or sharp drops to avoid baseline noise triggering decay
+-                elif previous_score is not None and (previous_score - final_trust_score) > 15:
++                    alert_msg = f"Device {device_id} trust score dropped to high risk ({effective_trust_score:.2f})."
++                    record_anomaly_event(device_id)
++                elif previous_score is not None and (previous_score - effective_trust_score) > 15:
+                     alert_severity = "medium"
+-                    alert_msg = f"Device {device_id} trust score dropped sharply by {previous_score - final_trust_score:.2f} points."
+-                    await record_anomaly_event(device_id)
++                    alert_msg = f"Device {device_id} trust score dropped sharply by {previous_score - effective_trust_score:.2f} points."
++                    record_anomaly_event(device_id)
+ 
+                 if alert_severity:
+                     # --- Issue 4: Alert deduplication guard (5-min cooldown per device+severity) ---
+                     dedup_key = f"alert:dedup:{device_id}:{alert_severity}"
+-                    dedup_ttl = 300 if alert_severity in ("critical", "high") else 120
+-                    is_new_alert = await redis_client.set(dedup_key, "1", ex=dedup_ttl, nx=True)
+-                    if not is_new_alert:
++                    if redis_client.exists(dedup_key):
+                         logger.debug(f"Alert suppressed (dedup cooldown active) for {device_id} [{alert_severity}]")
+                     else:
++                        # Set dedup key: 300s for critical/high, 120s for medium
++                        dedup_ttl = 300 if alert_severity in ("critical", "high") else 120
++                        redis_client.setex(dedup_key, dedup_ttl, "1")
+ 
+                         tib_data = None
+                         try:
+@@ -430,7 +443,7 @@ class TrustScoreEngine:
+                             "if_score": new_alert.if_score,
+                             "lstm_score": new_alert.lstm_score,
+                             "gnn_score": new_alert.gnn_score,
+-                            "time": new_alert.timestamp.isoformat(),
++                            "time": new_alert.timestamp.isoformat() + "Z",
+                             "is_resolved": new_alert.is_resolved,
+                             "tib": new_alert.tib
+                         }

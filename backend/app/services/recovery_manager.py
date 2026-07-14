@@ -20,9 +20,9 @@ async def evaluate_recovery(device_id: str, raw_trust_score: float, effective_tr
         now = time.time()
         last_anomaly_key = f"{LAST_ANOMALY_PREFIX}:{device_id}"
         
-        # If the device currently has an anomaly (score < 70), slide the last-anomaly timestamp to now
+        # If the device currently has an anomaly (raw_trust_score < 70), slide the last-anomaly timestamp to now
         # and do not perform any recovery actions.
-        if effective_trust < 70:
+        if raw_trust_score < 70:
             redis_client.set(last_anomaly_key, str(now))
             return
 

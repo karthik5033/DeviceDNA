@@ -15,6 +15,11 @@ def _serialize_alert(alert: Alert) -> dict:
         "alert_type": alert.alert_type,
         "message": alert.message,
         "trust_score": alert.trust_score,
+        "vae_score": alert.vae_score,
+        "if_score": alert.if_score,
+        "lstm_score": alert.lstm_score,
+        "gnn_score": alert.gnn_score,
+        "tib": alert.tib,
         "is_resolved": alert.is_resolved,
         "timestamp": alert.timestamp.isoformat().replace("+00:00", "Z") if getattr(alert.timestamp, "tzinfo", None) else (alert.timestamp.isoformat() + "Z" if alert.timestamp else None),
     }

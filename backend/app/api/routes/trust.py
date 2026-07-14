@@ -72,6 +72,8 @@ async def get_trust_history(device_id: str, hours: int = Query(24, description="
 async def get_all_devices():
     """
     Get all tracked devices and their current trust scores from Redis.
+    Also seeds physical hardware nodes with default scores so the topology
+    always renders them even before they generate traffic.
     """
     keys = redis_client.keys("trust:*")
     devices = {}
@@ -86,6 +88,10 @@ async def get_all_devices():
                 devices[device_id] = data.get("score") or data.get("trust_score") or 100.0
         except Exception:
             continue
+    # Ensure physical hardware nodes always appear in the topology
+    for d in FLEET:
+        if d.get('is_physical') and d['id'] not in devices:
+            devices[d['id']] = 100.0
     return devices
 
 

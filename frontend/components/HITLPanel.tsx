@@ -31,7 +31,7 @@ export default function HITLPanel() {
   // 1. Fetch pending lists from REST API
   const fetchPending = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/response/pending');
+      const res = await fetch((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000') + '/api/response/pending');
       if (res.ok) {
         const data = await res.json();
         setPendingList(data);
@@ -48,7 +48,7 @@ export default function HITLPanel() {
     const interval = setInterval(fetchPending, 3000);
 
     // 2. Connect WebSockets for real-time event updates
-    const socket: Socket = io('http://localhost:8000', {
+    const socket: Socket = io((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000'), {
       transports: ['polling', 'websocket'],
     });
 
@@ -94,7 +94,7 @@ export default function HITLPanel() {
   // 4. Action Handlers
   const handleApprove = async (deviceId: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/response/approve/${deviceId}`, {
+      const res = await fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/response/approve/${deviceId}`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -107,7 +107,7 @@ export default function HITLPanel() {
 
   const handleDeny = async (deviceId: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/response/deny/${deviceId}`, {
+      const res = await fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/response/deny/${deviceId}`, {
         method: 'POST',
       });
       if (res.ok) {

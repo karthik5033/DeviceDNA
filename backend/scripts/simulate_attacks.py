@@ -45,7 +45,7 @@ async def run_port_scan(producer, target_id):
 
     print(f"[*] Simulating Port Scan against {target_id} ({target['ip_address']})...")
     scan_ports = [22, 80, 1883, 5432, 8000]
-    attacker_ip = "192.168.43.150" # Lab Attacker IP
+    attacker_ip = "10.244.239.150" # Lab Attacker IP
 
     for port in scan_ports:
         for _ in range(5):  # Multiple probes per port

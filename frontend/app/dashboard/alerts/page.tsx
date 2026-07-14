@@ -5,7 +5,7 @@ import { ShieldAlert, Terminal, Eye, AlertTriangle, Zap, Flame, Fingerprint, Ref
 import { cn } from '@/lib/utils';
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:8000');
+const socket = io((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000'));
 
 function AlertCard({ alert, isSelected, onClick }: { alert: any, isSelected: boolean, onClick: () => void }) {
   const [isBriefOpen, setIsBriefOpen] = useState(false);
@@ -15,7 +15,7 @@ function AlertCard({ alert, isSelected, onClick }: { alert: any, isSelected: boo
 
   useEffect(() => {
     if (!deviceId) return;
-    fetch(`http://localhost:8000/api/response/${deviceId}/status`)
+    fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/response/${deviceId}/status`)
       .then(res => res.json())
       .then(data => setResponseStatus(data))
       .catch(err => console.error('Failed to fetch response status', err));
@@ -179,7 +179,7 @@ export default function AlertsPage() {
 
   useEffect(() => {
     // Fetch initial alerts
-    fetch('http://localhost:8000/api/alerts')
+    fetch((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000') + '/api/alerts')
       .then(res => res.json())
       .then(data => setLiveAlerts(data))
       .catch(err => console.error('Failed to fetch alerts:', err));
@@ -197,7 +197,7 @@ export default function AlertsPage() {
     if (!selectedAlert) return;
     setIsResolving(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/alerts/${selectedAlert.id}/resolve`, {
+      const res = await fetch(`${(typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000')}/api/alerts/${selectedAlert.id}/resolve`, {
         method: 'POST'
       });
       if (res.ok) {

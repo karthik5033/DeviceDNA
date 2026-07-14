@@ -23,7 +23,7 @@ export default function NLPPoliciesPage() {
     setTranslationResult(null);
     
     try {
-      const response = await fetch('http://localhost:8000/api/policy/parse', {
+      const response = await fetch((typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000') + '/api/policy/parse', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

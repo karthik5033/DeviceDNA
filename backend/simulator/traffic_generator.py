@@ -150,8 +150,8 @@ def generate_batch(size=100):
     """Generate a batch of regular traffic flows, filtering out restricted/isolated items."""
     flows = []
     
-    # Filter fleet: Do NOT generate background traffic for physical devices unless an attack is active on them
-    sim_fleet = [d for d in FLEET if not d.get('is_physical') or d['id'] in ATTACK_STATE]
+    # Filter fleet: Do NOT generate ANY traffic for physical devices.
+    sim_fleet = [d for d in FLEET if not d.get('is_physical')]
     
     if not sim_fleet:
         return flows
