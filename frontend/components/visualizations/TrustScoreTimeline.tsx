@@ -18,7 +18,7 @@ export default function TrustScoreTimeline({ liveScores }: { liveScores: Record<
 
   useEffect(() => {
     const interval = setInterval(() => {
-        const scores = Object.values(latestScoresRef.current);
+        const scores = Object.values(latestScoresRef.current || {});
         if (scores.length > 0) {
             let sum = 0;
             let minScore = 100;

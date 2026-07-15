@@ -26,14 +26,14 @@ ATTACK_TARGETS = {
     1: {
         "name": "Stealth Recon Scan",
         "description": "Port-scanning recon injected into cameras and sensors. High unique-dst-IPs, TCP SYN flood, low packet size.",
-        "targets": ["smoke_sensor_1", "SIM-0005", "SIM-0015", "SIM-0030"],
+        "targets": ["SIM-0005", "SIM-0015", "SIM-0030"],
         "payload": {"type": "recon", "intensity": 0.3},
         "duration_default": 300,
     },
     2: {
         "name": "Two-Stage Botnet C2 + DDoS",
         "description": "Stage 1: 120s of C2 beaconing on port 4444. Stage 2: 180s volumetric UDP DDoS flood.",
-        "targets": ["smoke_sensor_2", "SIM-0012", "SIM-0003", "SIM-0021"],
+        "targets": ["SIM-0012", "SIM-0003", "SIM-0021"],
         "payload": {
             "type": "beacon",
             "intensity": 0.7,
@@ -47,14 +47,14 @@ ATTACK_TARGETS = {
     3: {
         "name": "Lateral Movement / Worm Spread",
         "description": "Simulates internal lateral movement by aggressively scanning internal peers on SSH/SMB/RDP ports.",
-        "targets": ["gyro_sensor", "SIM-0011", "SIM-0016", "SIM-0026"],
+        "targets": ["SIM-0011", "SIM-0016", "SIM-0026"],
         "payload": {"type": "lateral", "intensity": 0.8},
         "duration_default": 300,
     },
     4: {
         "name": "Massive Data Exfiltration",
         "description": "Simulates ransomware or spyware exfiltrating huge volumes of outbound data over HTTPS.",
-        "targets": ["ldr_sensor", "SIM-0041", "SIM-0045", "SIM-0040"],
+        "targets": ["SIM-0041", "SIM-0045", "SIM-0040"],
         "payload": {"type": "exfil", "intensity": 1.0},
         "duration_default": 300,
     },

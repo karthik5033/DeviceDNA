@@ -18,27 +18,37 @@ redis_client = aioredis.Redis(
     decode_responses=True
 )
 
+# Mock state for presentation
+PRESENTATION_NODES = {
+    "gyro": {"device_id": "gyro", "device_class": "sensor", "source": "physical", "last_seen": datetime.now(timezone.utc).isoformat(), "status": "online"},
+    "mq3": {"device_id": "mq3", "device_class": "sensor", "source": "physical", "last_seen": datetime.now(timezone.utc).isoformat(), "status": "online"},
+    "mq135": {"device_id": "mq135", "device_class": "sensor", "source": "physical", "last_seen": datetime.now(timezone.utc).isoformat(), "status": "online"},
+    "mq2": {"device_id": "mq2", "device_class": "sensor", "source": "physical", "last_seen": datetime.now(timezone.utc).isoformat(), "status": "online"},
+    "ldr sensor": {"device_id": "ldr sensor", "device_class": "sensor", "source": "physical", "last_seen": datetime.now(timezone.utc).isoformat(), "status": "online"},
+}
+
 @router.get("/devices")
 async def get_all_devices() -> List[Dict[str, Any]]:
-    """Returns the full device registry from Redis."""
-    try:
-        keys = await redis_client.keys("registry:*")
-        devices = []
-        for key in keys:
-            raw_data = await redis_client.get(key)
-            if raw_data:
-                try:
-                    data = json.loads(raw_data)
-                    devices.append(data)
-                except json.JSONDecodeError:
-                    continue
+    """Returns the mock presentation devices."""
+    # Update last_seen for online devices to keep them 'Just now'
+    for d in PRESENTATION_NODES.values():
+        if d["status"] == "online":
+            d["last_seen"] = datetime.now(timezone.utc).isoformat()
+    return list(PRESENTATION_NODES.values())
+
+@router.post("/devices/{device_id}/toggle")
+async def toggle_device_status(device_id: str):
+    """Manually toggle a device online/offline for presentation."""
+    if device_id not in PRESENTATION_NODES:
+        raise HTTPException(status_code=404, detail="Device not found")
         
-        # Sort by device_id
-        devices.sort(key=lambda x: x.get("device_id", ""))
-        return devices
-    except Exception as e:
-        logger.error(f"Error fetching hardware registry: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error while fetching registry")
+    current = PRESENTATION_NODES[device_id]["status"]
+    new_status = "offline" if current == "online" else "online"
+    
+    PRESENTATION_NODES[device_id]["status"] = new_status
+    PRESENTATION_NODES[device_id]["last_seen"] = datetime.now(timezone.utc).isoformat()
+    
+    return {"status": "success", "device_id": device_id, "new_status": new_status}
 
 @router.get("/devices/{device_id}")
 async def get_device(device_id: str) -> Dict[str, Any]:

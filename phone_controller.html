@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Device Status Controller</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 24px;
+            color: #38bdf8;
+            margin-bottom: 5px;
+        }
+        p.subtitle {
+            text-align: center;
+            font-size: 14px;
+            color: #94a3b8;
+            margin-bottom: 20px;
+        }
+        .btn {
+            background-color: #1e293b;
+            border: 2px solid #334155;
+            color: #f8fafc;
+            padding: 20px 15px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn:active {
+            transform: scale(0.97);
+        }
+        .status-badge {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: 800;
+        }
+        .online-badge {
+            background-color: #052e16;
+            color: #4ade80;
+            border: 1px solid #166534;
+        }
+        .offline-badge {
+            background-color: #450a0a;
+            color: #f87171;
+            border: 1px solid #991b1b;
+        }
+        #status {
+            text-align: center;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .success {
+            background-color: #166534;
+            color: #4ade80;
+        }
+        .error {
+            background-color: #7f1d1d;
+            color: #fca5a5;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Device Status Controller</h1>
+    <p class="subtitle">Tap a device to toggle Online/Offline</p>
+
+    <div id="status">Fetching current status...</div>
+
+    <div id="device-list" style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- Devices injected here -->
+    </div>
+
+    <script>
+        const API_BASE = "http://192.168.1.115:8000/api/hardware";
+        const statusEl = document.getElementById("status");
+        const listEl = document.getElementById("device-list");
+        
+        let devices = [];
+
+        function showStatus(message, isError = false) {
+            statusEl.textContent = message;
+            statusEl.className = isError ? "error" : "success";
+            setTimeout(() => {
+                statusEl.textContent = "Ready.";
+                statusEl.className = "";
+            }, 3000);
+        }
+
+        async function fetchDevices() {
+            try {
+                const res = await fetch(`${API_BASE}/devices`);
+                devices = await res.json();
+                renderList();
+                statusEl.textContent = "Ready.";
+            } catch (err) {
+                showStatus("❌ Failed to fetch devices", true);
+            }
+        }
+
+        async function toggleDevice(deviceId) {
+            statusEl.textContent = `Toggling ${deviceId}...`;
+            statusEl.className = "";
+            try {
+                const res = await fetch(`${API_BASE}/devices/${deviceId}/toggle`, { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    showStatus(`✅ ${deviceId} is now ${data.new_status.toUpperCase()}`);
+                    fetchDevices(); // Refresh list
+                } else {
+                    showStatus("❌ Failed to toggle", true);
+                }
+            } catch (err) {
+                showStatus("❌ Error connecting to backend", true);
+            }
+        }
+
+        function renderList() {
+            listEl.innerHTML = "";
+            devices.forEach(d => {
+                const btn = document.createElement("button");
+                btn.className = "btn";
+                btn.onclick = () => toggleDevice(d.device_id);
+                
+                const isOnline = d.status === "online";
+                
+                btn.innerHTML = `
+                    <span>${d.device_id}</span>
+                    <span class="status-badge ${isOnline ? 'online-badge' : 'offline-badge'}">${d.status}</span>
+                `;
+                listEl.appendChild(btn);
+            });
+        }
+
+        // Init
+        fetchDevices();
+        setInterval(fetchDevices, 3000); // Auto refresh
+    </script>
+</body>
+</html>

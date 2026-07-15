@@ -10,12 +10,11 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include <time.h>
 
 // ── Wi-Fi & MQTT Configuration ──────────────────────────────────────────────
-const char* ssid          = "moto g86 power 5G_4324";
-const char* password      = "9481525706";
-const char* mqtt_broker   = "10.68.59.223"; // Host laptop IP address
+const char* ssid          = "DeviceDNA_Lab";
+const char* password      = "devicedna2025";
+const char* mqtt_broker   = "192.168.1.115"; // Host laptop IP address
 const int   mqtt_port     = 1883;
 
 // Device Identity
@@ -123,19 +122,6 @@ void connectWiFi() {
   Serial.println("Wi-Fi Connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
-
-  // Sync time via NTP for accurate timestamps
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  Serial.print("Syncing NTP time");
-  time_t now = time(nullptr);
-  int ntpRetries = 0;
-  while (now < 1000000000 && ntpRetries < 20) {
-    delay(500);
-    Serial.print(".");
-    now = time(nullptr);
-    ntpRetries++;
-  }
-  Serial.println(" done!");
 }
 
 void connectMQTT() {
@@ -203,42 +189,25 @@ void loop() {
     lastTelemetry = now;
 
     if (!g_quarantined) {
-      StaticJsonDocument<512> telemetry;
-      
-      // Format ISO8601 UTC Timestamp using NTP-synced time
-      char timestamp[30];
-      time_t now = time(nullptr);
-      struct tm* timeinfo = gmtime(&now);
-      strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", timeinfo);
-      
-      char flowId[32];
-      sprintf(flowId, "%s-%lu", device_id, random(10000, 99999));
-      
-      telemetry["flow_id"] = flowId;
-      telemetry["src_ip"] = WiFi.localIP().toString();
-      telemetry["dst_ip"] = mqtt_broker;
-      telemetry["src_port"] = 1883;
-      telemetry["dst_port"] = 8000;
-      telemetry["protocol"] = "MQTT";
-      
-      // Dummy sensor bytes logic (Change this to actual LDR/Smoke reading map)
-      telemetry["bytes"] = random(100, 500); 
-      telemetry["packets"] = 2;
-      telemetry["duration"] = 5.0;
-      telemetry["timestamp"] = timestamp;
+      StaticJsonDocument<256> telemetry;
       telemetry["device_id"] = device_id;
-      telemetry["device_class"] = "sensor";
+      telemetry["device_type"] = device_type;
+      telemetry["timestamp"] = now / 1000;
+      
+      // Simulate normal gateway telemetry
+      telemetry["total_flows"] = random(20, 35);
+      telemetry["total_bytes"] = random(1000, 2500);
+      telemetry["avg_packet_size"] = random(150, 300);
+      telemetry["external_ratio"] = 0.08;
+      telemetry["https_ratio"] = 0.50;
+      telemetry["tcp_ratio"] = 0.90;
+      telemetry["unique_dst_ips"] = random(2, 6);
+      telemetry["unique_dst_ports"] = random(2, 4);
 
-      char buf[512];
+      char buf[256];
       serializeJson(telemetry, buf);
-      
-      // Hardware gateway listens to devicedna/flows/#
-      char specific_topic[64];
-      sprintf(specific_topic, "devicedna/flows/%s", device_id);
-      
-      mqttClient.publish(specific_topic, buf);
-      Serial.println("[TX] Telemetry report published to broker: ");
-      Serial.println(buf);
+      mqttClient.publish(topic_telemetry, buf);
+      Serial.println("[TX] Telemetry report published to broker.");
     } else {
       Serial.println("[QUARANTINE] Telemetry transmission blocked.");
     }

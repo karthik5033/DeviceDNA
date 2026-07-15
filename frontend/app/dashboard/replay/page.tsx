@@ -1,21 +1,68 @@
 'use client';
 
 import { PlaySquare, FastForward, Play, Pause, Activity, RotateCcw, Crosshair } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import TrustScoreTimeline from '@/components/visualizations/TrustScoreTimeline';
 
 export default function ReplayPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [currentScore, setCurrentScore] = useState(98);
 
   const togglePlay = () => {
-    setIsPlaying(!isPlaying);
+    if (progress >= 100) {
+      setProgress(0);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const skipForward = () => {
+    setProgress(prev => Math.min(prev + 15, 100));
+  };
+
+  const skipBackward = () => {
+    setProgress(prev => Math.max(prev - 15, 0));
   };
 
   const reset = () => {
     setIsPlaying(false);
     setProgress(0);
+    setCurrentScore(98);
   };
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isPlaying) {
+      interval = setInterval(() => {
+        setProgress(prev => {
+          const next = prev + 1.5;
+          if (next >= 100) {
+            setIsPlaying(false);
+            return 100;
+          }
+          return next;
+        });
+      }, 500);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    // Simulate attack behavior based on progress percentage
+    if (progress === 0) setCurrentScore(98);
+    else if (progress > 30 && progress < 50) {
+      // The Anomaly Phase
+      setCurrentScore(Math.random() * 15 + 15); // Drops to 15-30
+    } else if (progress >= 50 && progress < 70) {
+      // Mitigation Phase
+      setCurrentScore(Math.random() * 20 + 60); // Recovers to 60-80
+    } else {
+      // Normal behavior
+      setCurrentScore(Math.random() * 5 + 92); // Stable 92-97
+    }
+  }, [progress]);
 
   return (
     <div className="flex flex-col gap-6 max-w-[1600px] mx-auto fade-in">
@@ -51,12 +98,12 @@ export default function ReplayPage() {
                </span>
             </h3>
             <div className="flex-1 w-full relative">
-              <TrustScoreTimeline />
+              <TrustScoreTimeline liveScores={{ "ALT-9399": currentScore }} />
               
               {/* Fake Scrub Bar overlaying the graph */}
               <div 
                  className="absolute top-0 bottom-0 w-px bg-white/50 pointer-events-none transition-all duration-300 shadow-[0_0_10px_#fff]" 
-                 style={{ left: `${30 + progress}%` }} 
+                 style={{ left: `${30 + progress * 0.6}%` }} 
               />
             </div>
           </div>
@@ -79,20 +126,20 @@ export default function ReplayPage() {
              
              {/* Buttons */}
              <div className="flex justify-between items-center px-4">
-               <div className="text-xs text-gray-500 font-mono">Status: {isPlaying ? 'Replaying Incident...' : 'Paused'}</div>
+               <div className="text-xs text-gray-500 font-mono">Status: {isPlaying ? 'Replaying Incident...' : (progress >= 100 ? 'Finished' : 'Paused')}</div>
                
                <div className="flex items-center gap-4">
                  <button onClick={reset} className="text-gray-500 hover:text-white transition-colors"><RotateCcw size={18} /></button>
-                 <button className="text-gray-500 hover:text-white transition-colors"><FastForward size={20} className="rotate-180" /></button>
+                 <button onClick={skipBackward} className="text-gray-500 hover:text-white transition-colors"><FastForward size={20} className="rotate-180" /></button>
                  
                  <button 
                    onClick={togglePlay} 
                    className="w-12 h-12 bg-[#3edcff] text-[#070b14] rounded-full flex items-center justify-center hover:bg-blue-400 hover:scale-105 transition-all shadow-[0_0_15px_rgba(62,220,255,0.4)]"
                  >
-                   {isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-1" />}
+                   {isPlaying ? <Pause size={24} /> : (progress >= 100 ? <RotateCcw size={24} /> : <Play size={24} className="ml-1" />)}
                  </button>
                  
-                 <button className="text-gray-500 hover:text-white transition-colors"><FastForward size={20} /></button>
+                 <button onClick={skipForward} className="text-gray-500 hover:text-white transition-colors"><FastForward size={20} /></button>
                </div>
                
                <div className="text-xs text-purple-400 border border-purple-500/30 bg-purple-500/10 px-2 py-1 rounded">1.0x Speed</div>
@@ -105,20 +152,23 @@ export default function ReplayPage() {
           <div className="text-sm font-bold border-b border-[#1e293b] pb-2 text-gray-300">Raw Flow Replay Capture</div>
           
           <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
-            {[2841, 4102, 1537, 4998, 3276, 1024, 2190, 3801].map((bytes, i) => (
-              <div key={i} className={`p-3 rounded-md text-xs font-mono border ${i === 3 ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-[#111827] border-[#1e293b] text-gray-400'}`}>
+            {[2841, 4102, 1537, 4998, 3276, 1024, 2190, 3801].map((bytes, i) => {
+              // Highlight anomalies dynamically when in the attack phase
+              const isAnomaly = progress > 30 && progress < 50 && (i === 3 || i === 5);
+              return (
+              <div key={i} className={`p-3 rounded-md text-xs font-mono border transition-colors duration-500 ${isAnomaly ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-[#111827] border-[#1e293b] text-gray-400'}`}>
                 <div className="flex justify-between mb-1">
                   <span>10.0.1.44:50932</span>
                   <span>{"->"}</span>
-                  <span className={i===3 ? 'text-red-500 font-bold' : ''}>185.15.x.x:443</span>
+                  <span className={isAnomaly ? 'text-red-500 font-bold' : ''}>185.15.x.x:443</span>
                 </div>
                 <div className="flex justify-between text-gray-600">
                   <span>TCP</span>
                   <span>{bytes} B</span>
-                  <span>{i===3 ? 'ANOMALY_SIG_T' : 'CLEAN'}</span>
+                  <span>{isAnomaly ? 'ANOMALY_SIG_T' : 'CLEAN'}</span>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
 

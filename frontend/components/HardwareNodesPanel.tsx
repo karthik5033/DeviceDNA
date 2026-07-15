@@ -1,7 +1,7 @@
 'use client';
 
 import { Server, AlertTriangle } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface Device {
   device_id: string;
@@ -15,25 +15,31 @@ export default function HardwareNodesPanel() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // For presentation purposes, hardcode the explicitly connected sensors to bypass network issues.
-    const presentationNodes = [
-      { device_id: 'smoke_sensor_1', device_class: 'sensor', source: 'physical', last_seen: new Date().toISOString(), status: 'online' },
-      { device_id: 'smoke_sensor_2', device_class: 'sensor', source: 'physical', last_seen: new Date().toISOString(), status: 'online' },
-      { device_id: 'gyro_sensor', device_class: 'sensor', source: 'physical', last_seen: new Date().toISOString(), status: 'online' },
-      { device_id: 'ldr_sensor', device_class: 'sensor', source: 'physical', last_seen: new Date().toISOString(), status: 'online' }
-    ];
-    
-    setDevices(presentationNodes);
-    setLoading(false);
-    
-    const interval = setInterval(() => {
-      // Update last_seen so it stays 'Just now'
-      setDevices(prev => prev.map(d => ({ ...d, last_seen: new Date().toISOString() })));
-    }, 2000);
-    
-    return () => clearInterval(interval);
+  const fetchDevices = useCallback(async () => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/hardware/devices?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+      if (!res.ok) throw new Error('API error');
+      const data: Device[] = await res.json();
+      setDevices(data);
+    } catch {
+      setDevices(prev => prev);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchDevices();
+    const interval = setInterval(fetchDevices, 2000);
+    return () => clearInterval(interval);
+  }, [fetchDevices]);
 
   const formatLastSeen = (isoString: string) => {
     try {
@@ -83,7 +89,7 @@ export default function HardwareNodesPanel() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {devices.map(device => {
-            const isOnline = device.status === 'online';
+          const isOnline = device.status === 'online';
             
             return (
               <div 
